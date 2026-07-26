@@ -68,10 +68,19 @@ enum StreamQuality: String, CaseIterable, Codable {
             )
         }
 
-        let scale = Double(maximumEncodedDimension) / Double(longestSide)
+        if sourceWidth >= sourceHeight {
+            return CMVideoDimensions(
+                width: maximumEncodedDimension,
+                height: evenDimension(
+                    Int32(Int64(sourceHeight) * Int64(maximumEncodedDimension) / Int64(sourceWidth))
+                )
+            )
+        }
         return CMVideoDimensions(
-            width: evenDimension(Int32(Double(sourceWidth) * scale)),
-            height: evenDimension(Int32(Double(sourceHeight) * scale))
+            width: evenDimension(
+                Int32(Int64(sourceWidth) * Int64(maximumEncodedDimension) / Int64(sourceHeight))
+            ),
+            height: maximumEncodedDimension
         )
     }
 
