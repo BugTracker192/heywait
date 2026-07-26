@@ -141,6 +141,7 @@ final class VideoRendererView: UIView {
 
 final class H264DisplayDecoder {
     var onFailure: ((String) -> Void)?
+    var onKeyFrameEnqueued: (() -> Void)?
 
     private let renderer: VideoRendererView
     private var formatDescription: CMVideoFormatDescription?
@@ -266,6 +267,9 @@ final class H264DisplayDecoder {
         let render = { [weak renderer] in
             guard let renderer else { return }
             renderer.prepareForEnqueue().enqueue(sampleBuffer)
+            if isKeyFrame {
+                self.onKeyFrameEnqueued?()
+            }
         }
         if Thread.isMainThread {
             render()

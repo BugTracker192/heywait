@@ -90,8 +90,13 @@ struct ReceiverRootView: View {
             .frame(maxWidth: 420)
 
             Spacer()
-            Button("Generate new code") {
-                showRotateConfirmation = true
+            VStack(spacing: 7) {
+                Button("Generate new code") {
+                    showRotateConfirmation = true
+                }
+                Text(buildLabel)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -110,6 +115,12 @@ struct ReceiverRootView: View {
             }
             .ignoresSafeArea()
         )
+    }
+
+    private var buildLabel: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return "v\(version) (\(build))"
     }
 
     private var controls: some View {

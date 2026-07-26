@@ -28,6 +28,10 @@ final class ViewerSession: ObservableObject {
         renderer.onDisplayLayerChanged = { [weak pictureInPicture = self.pictureInPicture] displayLayer in
             pictureInPicture?.updateDisplayLayer(displayLayer)
         }
+        decoder.onKeyFrameEnqueued = { [weak self] in
+            self?.videoStatus = nil
+            self?.hasPicture = true
+        }
         decoder.onFailure = { [weak self] message in
             self?.videoStatus = message
             self?.hasPicture = false
