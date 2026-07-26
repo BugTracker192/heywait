@@ -75,13 +75,25 @@ final class VideoRendererView: UIView {
         displayLayer.preventsCapture = false
         layer.addSublayer(displayLayer)
 
-        readyObservation = displayLayer.observe(
-            \.isReadyForDisplay,
-            options: [.initial, .new]
-        ) { [weak self, weak displayLayer] _, _ in
-            guard displayLayer?.isReadyForDisplay == true else { return }
-            DispatchQueue.main.async {
-                self?.onReadyForDisplay?()
+        if #available(iOS 17.4, *) {
+            readyObservation = displayLayer.observe(
+                \.isReadyForDisplay,
+                options: [.initial, .new]
+            ) { [weak self, weak displayLayer] _, _ in
+                guard displayLayer?.isReadyForDisplay == true else { return }
+                DispatchQueue.main.async {
+                    self?.onReadyForDisplay?()
+                }
+            }
+        } else {
+            readyObservation = displayLayer.observe(
+                \.status,
+                options: [.initial, .new]
+            ) { [weak self, weak displayLayer] _, _ in
+                guard displayLayer?.status == .rendering else { return }
+                DispatchQueue.main.async {
+                    self?.onReadyForDisplay?()
+                }
             }
         }
 
