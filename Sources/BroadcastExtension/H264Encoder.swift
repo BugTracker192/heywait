@@ -98,9 +98,7 @@ final class H264Encoder {
             width: width,
             height: height,
             codecType: kCMVideoCodecType_H264,
-            encoderSpecification: [
-                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true
-            ] as CFDictionary,
+            encoderSpecification: nil,
             imageBufferAttributes: nil,
             compressedDataAllocator: kCFAllocatorDefault,
             outputCallback: Self.outputCallback,
