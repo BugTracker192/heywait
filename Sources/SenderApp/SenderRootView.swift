@@ -104,9 +104,19 @@ struct SenderRootView: View {
                     .foregroundStyle(.secondary)
 
                 if model.discovery.receivers.isEmpty {
-                    HStack {
+                    HStack(spacing: 10) {
                         ProgressView()
                         Text("Searching nearby…")
+                        Spacer()
+                        Button {
+                            model.discovery.retryNow()
+                        } label: {
+                            Label("Retry", systemImage: "arrow.clockwise")
+                                .labelStyle(.iconOnly)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.cyan)
+                        .accessibilityLabel("Retry receiver discovery")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
@@ -185,12 +195,17 @@ struct SenderRootView: View {
                 HStack(spacing: 16) {
                     BroadcastPicker()
                         .frame(width: 58, height: 58)
+                        .background(Color.cyan.opacity(0.12), in: Circle())
                         .opacity(model.didSave || SenderConfigurationStore.shared.load().isReady ? 1 : 0.35)
                         .allowsHitTesting(model.didSave || SenderConfigurationStore.shared.load().isReady)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Start sharing")
                             .font(.headline)
-                        Text("Tap the broadcast button, then confirm once in the iOS sheet.")
+                        Text(
+                            model.didSave || SenderConfigurationStore.shared.load().isReady
+                                ? "Tap the broadcast button, then confirm once in the iOS sheet."
+                                : "Choose and save a receiver to enable the broadcast button."
+                        )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -233,4 +248,3 @@ private struct BroadcastPicker: UIViewRepresentable {
 
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
 }
-
