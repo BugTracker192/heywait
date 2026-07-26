@@ -24,6 +24,7 @@ final class SenderTransport {
     private var authenticated = false
     private let stateLock = NSLock()
     private var _isReady = false
+    private var _outstandingVideoFrames = 0
 
     var onReady: (() -> Void)?
     var onDisconnected: (() -> Void)?
@@ -37,6 +38,13 @@ final class SenderTransport {
         stateLock.lock()
         defer { stateLock.unlock() }
         return _isReady
+    }
+
+    var canEncodeNextFrame: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _isReady
+            && _outstandingVideoFrames < AppConstants.maximumOutstandingVideoFrames
     }
 
     func start() {
@@ -60,6 +68,7 @@ final class SenderTransport {
             self.pending.removeAll()
             self.sending = false
             self.setReady(false)
+            self.resetOutstandingVideoFrames()
         }
     }
 
@@ -69,10 +78,14 @@ final class SenderTransport {
     }
 
     func sendVideoFrame(_ data: Data, isKeyFrame: Bool) {
+        // Once VideoToolbox emits a frame, later frames may reference it. Track
+        // backpressure here, but never discard an encoded access unit.
+        adjustOutstandingVideoFrames(by: 1)
         enqueue(
             kind: .videoFrame,
             flags: isKeyFrame ? .keyFrame : [],
-            payload: data
+            payload: data,
+            tracksOutstandingVideoFrame: true
         )
     }
 
@@ -82,22 +95,21 @@ final class SenderTransport {
         enqueue(kind: .orientation, payload: payload)
     }
 
-    private func enqueue(kind: PacketKind, flags: PacketFlags = [], payload: Data) {
+    private func enqueue(
+        kind: PacketKind,
+        flags: PacketFlags = [],
+        payload: Data,
+        tracksOutstandingVideoFrame: Bool = false
+    ) {
         queue.async { [weak self] in
-            guard let self, self.authenticated else { return }
-
-            if kind == .videoFrame {
-                let queuedFrames = self.pending.indices.filter { self.pending[$0].isVideoFrame }
-                if queuedFrames.count >= 3 {
-                    if let oldestDelta = queuedFrames.first(where: { !self.pending[$0].flags.contains(.keyFrame) }) {
-                        self.pending.remove(at: oldestDelta)
-                    } else if flags.contains(.keyFrame), let oldest = queuedFrames.first {
-                        self.pending.remove(at: oldest)
-                    } else {
-                        return
-                    }
+            guard let self else { return }
+            guard self.authenticated else {
+                if tracksOutstandingVideoFrame {
+                    self.adjustOutstandingVideoFrames(by: -1)
                 }
+                return
             }
+
             self.pending.append(PendingPacket(kind: kind, flags: flags, payload: payload))
             self.pump()
         }
@@ -112,6 +124,7 @@ final class SenderTransport {
         parser = PacketStreamParser()
         pending.removeAll()
         sending = false
+        resetOutstandingVideoFrames()
         authenticated = false
         setReady(false)
 
@@ -152,6 +165,7 @@ final class SenderTransport {
         tcp.keepaliveInterval = 2
         let parameters = NWParameters(tls: nil, tcp: tcp)
         parameters.includePeerToPeer = true
+        parameters.serviceClass = .interactiveVideo
 
         let connection = NWConnection(to: endpoint, using: parameters)
         self.connection = connection
@@ -255,6 +269,9 @@ final class SenderTransport {
             sequence: sequence,
             payload: next.payload
         ) else {
+            if next.isVideoFrame {
+                adjustOutstandingVideoFrames(by: -1)
+            }
             sending = false
             pump()
             return
@@ -262,6 +279,9 @@ final class SenderTransport {
 
         connection.send(content: data, completion: .contentProcessed { [weak self, weak connection] error in
             guard let self, let connection, connection === self.connection else { return }
+            if next.isVideoFrame {
+                self.adjustOutstandingVideoFrames(by: -1)
+            }
             self.sending = false
             if error == nil {
                 self.pump()
@@ -281,6 +301,7 @@ final class SenderTransport {
         authenticated = false
         pending.removeAll()
         sending = false
+        resetOutstandingVideoFrames()
         let wasReady = isReady
         setReady(false)
         if wasReady {
@@ -299,6 +320,18 @@ final class SenderTransport {
     private func setReady(_ value: Bool) {
         stateLock.lock()
         _isReady = value
+        stateLock.unlock()
+    }
+
+    private func adjustOutstandingVideoFrames(by delta: Int) {
+        stateLock.lock()
+        _outstandingVideoFrames = max(0, _outstandingVideoFrames + delta)
+        stateLock.unlock()
+    }
+
+    private func resetOutstandingVideoFrames() {
+        stateLock.lock()
+        _outstandingVideoFrames = 0
         stateLock.unlock()
     }
 }

@@ -60,7 +60,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
-        guard !isPaused, !isFinishing, sampleBufferType == .video, transport?.isReady == true else { return }
+        guard !isPaused,
+              !isFinishing,
+              sampleBufferType == .video,
+              transport?.canEncodeNextFrame == true else {
+            return
+        }
 
         autoreleasepool {
             let orientation = videoOrientation(from: sampleBuffer)

@@ -9,5 +9,6 @@ enum AppConstants {
     static let maximumPacketBytes = 8 * 1024 * 1024
     static let preferredFramesPerSecond = 30
     static let keyFrameInterval = 30
+    static let maximumOutstandingVideoFrames = 2
 }
 

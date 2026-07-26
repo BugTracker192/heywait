@@ -54,7 +54,7 @@ Measure on balanced quality for at least 20 minutes:
 - Memory use of the Broadcast Upload Extension; verify ReplayKit does not jetsam it.
 - Queue behavior under 5–10% packet loss or high Wi-Fi contention.
 
-If the extension is terminated under memory pressure, lower the sharp preset bitrate or use data-saver mode. Do not increase the outgoing frame queue; that increases latency and extension memory use.
+If the extension is terminated under memory pressure, lower the sharp preset bitrate or use data-saver mode. Do not increase the outstanding-frame backpressure limit; that increases latency and extension memory use.
 
 ## Viewer UX and recording
 

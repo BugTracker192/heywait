@@ -18,10 +18,6 @@ final class ReceiverServer {
     private var clients: [ObjectIdentifier: ReceiverClient] = [:]
     private var activeClientID: ObjectIdentifier?
     private var identity: ReceiverIdentity?
-    private let deliveryLock = NSLock()
-    private var pendingVideoPacket: WirePacket?
-    private var videoDeliveryScheduled = false
-    private var deliveryGeneration: UInt64 = 0
 
     func start(identity: ReceiverIdentity) {
         queue.async { [weak self] in
@@ -36,6 +32,7 @@ final class ReceiverServer {
             tcp.keepaliveInterval = 2
             let parameters = NWParameters(tls: nil, tcp: tcp)
             parameters.includePeerToPeer = true
+            parameters.serviceClass = .interactiveVideo
 
             do {
                 let listener = try NWListener(using: parameters)
@@ -135,11 +132,6 @@ final class ReceiverServer {
         }
         clients.removeAll()
         activeClientID = nil
-        deliveryLock.lock()
-        deliveryGeneration &+= 1
-        pendingVideoPacket = nil
-        videoDeliveryScheduled = false
-        deliveryLock.unlock()
     }
 
     private func publish(_ state: State) {
@@ -147,36 +139,9 @@ final class ReceiverServer {
     }
 
     private func deliver(_ packet: WirePacket) {
-        guard packet.kind == .videoFrame else {
-            DispatchQueue.main.async { [weak self] in self?.onPacket?(packet) }
-            return
-        }
-
-        deliveryLock.lock()
-        if pendingVideoPacket?.flags.contains(.keyFrame) != true || packet.flags.contains(.keyFrame) {
-            pendingVideoPacket = packet
-        }
-        let shouldSchedule = !videoDeliveryScheduled
-        videoDeliveryScheduled = true
-        let generation = deliveryGeneration
-        deliveryLock.unlock()
-
-        guard shouldSchedule else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.deliveryLock.lock()
-            guard generation == self.deliveryGeneration else {
-                self.deliveryLock.unlock()
-                return
-            }
-            let latest = self.pendingVideoPacket
-            self.pendingVideoPacket = nil
-            self.videoDeliveryScheduled = false
-            self.deliveryLock.unlock()
-            if let latest {
-                self.onPacket?(latest)
-            }
-        }
+        // TCP and DispatchQueue both preserve order. Do not coalesce H.264
+        // access units: a later delta frame may reference every earlier one.
+        DispatchQueue.main.async { [weak self] in self?.onPacket?(packet) }
     }
 }
 

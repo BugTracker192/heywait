@@ -55,13 +55,13 @@ The header exposes packet type, sequence, and ciphertext length to the local net
 
 - VideoToolbox uses real-time mode, no B-frame reordering, maximum frame delay zero, a one-second keyframe interval, and H.264 Baseline.
 - TCP uses `noDelay` and keepalive.
-- At most three encoded video frames wait behind an in-flight send. The oldest queued delta frame is discarded when full; queued keyframes are preserved.
-- The receiver also coalesces pending display frames while preserving keyframes, preventing a busy main thread from building a stale render backlog.
+- At most two encoded video frames may be outstanding. ReplayKit capture samples are skipped before encoding while that limit is reached, so VideoToolbox never creates reference frames that the transport later discards.
+- Every encoded frame is delivered to the receiver in TCP order. The receiver never coalesces or discards H.264 access units because later delta frames may depend on them.
 - Control/configuration packets are not discarded.
 - The sender forces a keyframe after authentication, resume, size change, and orientation change.
 - The receiver marks every display sample `DisplayImmediately`.
 
-The strategy prefers temporal freshness over complete delivery. Actual latency depends on device thermals, Wi-Fi contention, capture resolution, and certificate-signed build behavior.
+The strategy applies congestion control before encoding, preserving both temporal freshness and a complete decodable H.264 stream. Actual latency depends on device thermals, Wi-Fi contention, capture resolution, and certificate-signed build behavior.
 
 ## Recovery
 
