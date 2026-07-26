@@ -14,7 +14,6 @@ struct ReceiverRootView: View {
             Color.black.ignoresSafeArea()
             VideoSurface(view: session.renderer)
                 .ignoresSafeArea()
-                .opacity(session.hasPicture ? 1 : 0)
 
             if !session.hasPicture {
                 waitingView
@@ -100,12 +99,15 @@ struct ReceiverRootView: View {
         }
         .padding(.horizontal, 24)
         .background(
-            RadialGradient(
-                colors: [Color.cyan.opacity(0.16), .clear],
-                center: .top,
-                startRadius: 10,
-                endRadius: 500
-            )
+            ZStack {
+                Color.black
+                RadialGradient(
+                    colors: [Color.cyan.opacity(0.16), .clear],
+                    center: .top,
+                    startRadius: 10,
+                    endRadius: 500
+                )
+            }
             .ignoresSafeArea()
         )
     }
