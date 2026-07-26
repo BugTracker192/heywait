@@ -73,7 +73,7 @@ jobs:
             '.derived-data/Build/Products/Release-iphoneos/Screen Share Sender.app' \
             'build/ScreenShare-Sender-unsigned.ipa'
           bash scripts/package-ipa.sh \
-            '.derived-data/Build/Products/Release-iphoneos/Screen Share.app' \
+            '.derived-data/Build/Products/Release-iphoneos/ScreenShareReceiver.app' \
             'build/ScreenShare-Receiver-unsigned.ipa'
           shasum -a 256 build/*.ipa > build/SHA256SUMS.txt
 
@@ -112,4 +112,3 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --generate-notes \
             --title "Screen Share ${GITHUB_REF_NAME}"
-
