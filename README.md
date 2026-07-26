@@ -52,8 +52,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for packet framing, encryption,
 
 1. Create a GitHub repository and push this source.
 2. Open **Actions → Build iOS IPAs → Run workflow**.
-3. Download the `ScreenShare-<commit>` artifact.
-4. The artifact contains:
+3. Download the `ScreenShare-<commit>` artifact. If the repository's Actions
+   artifact quota is unavailable, use the rolling `ci-<branch>` prerelease
+   created by the branch's push workflow instead.
+4. The artifact or CI prerelease contains:
    - `ScreenShare-Sender-unsigned.ipa`
    - `ScreenShare-Receiver-unsigned.ipa`
    - `SHA256SUMS.txt`

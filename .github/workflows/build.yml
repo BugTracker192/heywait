@@ -19,6 +19,8 @@ jobs:
     name: Xcode 26 build and tests
     runs-on: macos-26
     timeout-minutes: 35
+    permissions:
+      contents: write
 
     steps:
       - name: Check out source
@@ -78,6 +80,8 @@ jobs:
           shasum -a 256 build/*.ipa > build/SHA256SUMS.txt
 
       - name: Upload build artifacts
+        id: upload_artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ScreenShare-${{ github.sha }}
@@ -86,6 +90,40 @@ jobs:
             build/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish CI prerelease fallback
+        if: steps.upload_artifact.outcome == 'failure' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          safe_ref="$(printf '%s' "${GITHUB_REF_NAME}" | tr '/_' '--')"
+          ci_tag="ci-${safe_ref}"
+          if gh release view "${ci_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/${ci_tag}" \
+              -f sha="${GITHUB_SHA}" \
+              -F force=true
+            gh release upload "${ci_tag}" \
+              build/*.ipa \
+              build/SHA256SUMS.txt \
+              --clobber \
+              --repo "${GITHUB_REPOSITORY}"
+          else
+            gh release create "${ci_tag}" \
+              build/*.ipa \
+              build/SHA256SUMS.txt \
+              --target "${GITHUB_SHA}" \
+              --prerelease \
+              --title "Screen Share CI (${GITHUB_REF_NAME})" \
+              --notes "Unsigned CI build for ${GITHUB_REF_NAME} at ${GITHUB_SHA}." \
+              --repo "${GITHUB_REPOSITORY}"
+          fi
+
+      - name: Report pull request artifact fallback
+        if: steps.upload_artifact.outcome == 'failure' && github.event_name == 'pull_request'
+        run: |
+          echo "::warning::Actions artifact storage is unavailable. The matching branch push publishes the IPAs to its rolling CI prerelease."
 
   release:
     name: Publish tagged release
@@ -97,10 +135,25 @@ jobs:
 
     steps:
       - name: Download artifacts
+        id: download_artifact
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ScreenShare-${{ github.sha }}
           path: build
+
+      - name: Download CI prerelease fallback
+        if: steps.download_artifact.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          safe_ref="$(printf '%s' "${GITHUB_REF_NAME}" | tr '/_' '--')"
+          mkdir -p build
+          gh release download "ci-${safe_ref}" \
+            --pattern '*.ipa' \
+            --pattern 'SHA256SUMS.txt' \
+            --dir build \
+            --repo "${GITHUB_REPOSITORY}"
 
       - name: Create GitHub release
         env:
