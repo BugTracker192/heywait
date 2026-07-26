@@ -72,10 +72,15 @@ jobs:
         run: |
           sender_info='.derived-data/Build/Products/Release-iphoneos/Screen Share Sender.app/Info.plist'
           receiver_info='.derived-data/Build/Products/Release-iphoneos/ScreenShareReceiver.app/Info.plist'
+          broadcast_app='.derived-data/Build/Products/Release-iphoneos/Screen Share Sender.app/PlugIns/ScreenShareBroadcast.appex'
+          broadcast_info="${broadcast_app}/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "${sender_info}")" = '_screenshare._tcp'
           test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "${sender_info}")"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "${receiver_info}")" = '_screenshare._tcp'
           test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "${receiver_info}")"
+          test -x "${broadcast_app}/ScreenShareBroadcast"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${broadcast_info}")" = 'com.apple.broadcast-services-upload'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionAttributes:RPBroadcastProcessMode' "${broadcast_info}")" = 'RPBroadcastProcessModeSampleBuffer'
 
       - name: Package sideloadable IPAs
         run: |

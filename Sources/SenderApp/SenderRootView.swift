@@ -192,25 +192,40 @@ struct SenderRootView: View {
 
                 Divider()
 
-                HStack(spacing: 16) {
-                    BroadcastPicker()
+                let broadcastEnabled = model.didSave || SenderConfigurationStore.shared.load().isReady
+                ZStack {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.cyan.opacity(0.14))
+                            Image(systemName: "dot.radiowaves.left.and.right")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(Color.cyan)
+                        }
                         .frame(width: 58, height: 58)
-                        .background(Color.cyan.opacity(0.12), in: Circle())
-                        .opacity(model.didSave || SenderConfigurationStore.shared.load().isReady ? 1 : 0.35)
-                        .allowsHitTesting(model.didSave || SenderConfigurationStore.shared.load().isReady)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Start sharing")
-                            .font(.headline)
-                        Text(
-                            model.didSave || SenderConfigurationStore.shared.load().isReady
-                                ? "Tap the broadcast button, then confirm once in the iOS sheet."
-                                : "Choose and save a receiver to enable the broadcast button."
-                        )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Start sharing")
+                                .font(.headline)
+                            Text(
+                                broadcastEnabled
+                                    ? "Tap anywhere here, then confirm once in the iOS sheet."
+                                    : "Choose and save a receiver to enable broadcasting."
+                            )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
                     }
-                    Spacer()
+
+                    if broadcastEnabled {
+                        BroadcastPicker()
+                            .frame(maxWidth: .infinity, minHeight: 58)
+                            .accessibilityLabel("Start screen sharing")
+                    }
                 }
+                .contentShape(Rectangle())
+                .opacity(broadcastEnabled ? 1 : 0.35)
             }
         }
     }
@@ -237,14 +252,59 @@ struct SenderRootView: View {
     }
 }
 
-private struct BroadcastPicker: UIViewRepresentable {
-    func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
-        let picker = RPSystemBroadcastPickerView(frame: .zero)
+private final class BroadcastPickerContainer: UIView {
+    private let picker: RPSystemBroadcastPickerView
+
+    override init(frame: CGRect) {
+        picker = RPSystemBroadcastPickerView(
+            frame: CGRect(x: 0, y: 0, width: max(frame.width, 58), height: max(frame.height, 58))
+        )
+        super.init(frame: frame)
+
         picker.preferredExtension = AppConstants.broadcastBundleIdentifier
         picker.showsMicrophoneButton = false
-        picker.tintColor = .cyan
-        return picker
+        picker.tintColor = .clear
+        picker.isUserInteractionEnabled = false
+        addSubview(picker)
+
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = "Start screen sharing"
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openBroadcastPicker)))
     }
 
-    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        picker.frame = bounds
+        picker.layoutIfNeeded()
+    }
+
+    @objc private func openBroadcastPicker() {
+        picker.layoutIfNeeded()
+        findButton(in: picker)?.sendActions(for: .touchUpInside)
+    }
+
+    private func findButton(in view: UIView) -> UIButton? {
+        if let button = view as? UIButton {
+            return button
+        }
+        for subview in view.subviews {
+            if let button = findButton(in: subview) {
+                return button
+            }
+        }
+        return nil
+    }
+}
+
+private struct BroadcastPicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> BroadcastPickerContainer {
+        BroadcastPickerContainer(frame: CGRect(x: 0, y: 0, width: 300, height: 58))
+    }
+
+    func updateUIView(_ uiView: BroadcastPickerContainer, context: Context) {}
 }
