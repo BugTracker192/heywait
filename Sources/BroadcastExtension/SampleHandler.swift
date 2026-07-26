@@ -7,6 +7,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var encoder: H264Encoder?
     private var isPaused = false
     private var lastOrientation: UInt32 = 1
+    private var isFinishing = false
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         let configuration = SenderConfigurationStore.shared.load()
@@ -32,6 +33,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
             }
             transport?.sendVideoFrame(frame.data, isKeyFrame: frame.isKeyFrame)
         }
+        encoder.onFailure = { [weak self] message in
+            self?.stopWithError(message)
+        }
         transport.onReady = { [weak encoder] in
             encoder?.requestKeyFrame()
         }
@@ -48,6 +52,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func broadcastFinished() {
+        isFinishing = true
         transport?.stop()
         encoder?.invalidate()
         transport = nil
@@ -55,15 +60,29 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
-        guard !isPaused, sampleBufferType == .video, transport?.isReady == true else { return }
+        guard !isPaused, !isFinishing, sampleBufferType == .video, transport?.isReady == true else { return }
 
-        let orientation = videoOrientation(from: sampleBuffer)
-        if orientation != lastOrientation {
-            lastOrientation = orientation
-            transport?.sendOrientation(orientation)
-            encoder?.requestKeyFrame()
+        autoreleasepool {
+            let orientation = videoOrientation(from: sampleBuffer)
+            if orientation != lastOrientation {
+                lastOrientation = orientation
+                transport?.sendOrientation(orientation)
+                encoder?.requestKeyFrame()
+            }
+            encoder?.encode(sampleBuffer, orientation: orientation)
         }
-        encoder?.encode(sampleBuffer, orientation: orientation)
+    }
+
+    private func stopWithError(_ message: String) {
+        guard !isFinishing else { return }
+        isFinishing = true
+        finishBroadcastWithError(
+            NSError(
+                domain: "dev.screenshare.broadcast",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        )
     }
 
     private func videoOrientation(from sampleBuffer: CMSampleBuffer) -> UInt32 {
@@ -75,4 +94,3 @@ final class SampleHandler: RPBroadcastSampleHandler {
         return (value as? NSNumber)?.uint32Value ?? lastOrientation
     }
 }
-

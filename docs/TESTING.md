@@ -28,6 +28,7 @@ GitHub Actions proves that both app targets and unit tests compile under Xcode 2
 
 ## Capture and rendering
 
+- Full-resolution sender capture starts without ReplayKit error `-5808` or an extension memory termination.
 - Home Screen, Settings, Safari, scrolling text, keyboard, and animations render.
 - Portrait → landscape-left → portrait → landscape-right does not stretch or retain the previous orientation.
 - Dynamic resolution change produces a new SPS/PPS and keyframe.

@@ -10,7 +10,7 @@ The repository has no runtime binary dependencies. XcodeGen creates the project 
 ## What is implemented
 
 - Full-display ReplayKit capture from the sender, including other apps and orientation changes.
-- Hardware H.264 encoding through VideoToolbox at 20 or 30 FPS.
+- Hardware H.264 encoding through VideoToolbox at 20 or 30 FPS, with quality-specific resolution bounds to stay within ReplayKit's extension memory budget.
 - Hardware-backed low-delay display with `AVSampleBufferDisplayLayer`.
 - Bonjour discovery, automatic reconnect, TCP no-delay, keepalive, and a bounded frame queue that drops stale frames instead of accumulating latency.
 - 16-character local pairing code and ChaCha20-Poly1305 authenticated encryption for every control and video payload.

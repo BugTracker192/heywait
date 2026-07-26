@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 
 struct HelloPayload: Codable, Equatable {
@@ -46,6 +47,34 @@ enum StreamQuality: String, CaseIterable, Codable {
         }
     }
 
+    var maximumEncodedDimension: Int32 {
+        switch self {
+        case .balanced: return 1_440
+        case .sharp: return 1_920
+        case .dataSaver: return 960
+        }
+    }
+
+    func encodedDimensions(sourceWidth: Int32, sourceHeight: Int32) -> CMVideoDimensions {
+        guard sourceWidth > 0, sourceHeight > 0 else {
+            return CMVideoDimensions(width: 0, height: 0)
+        }
+
+        let longestSide = max(sourceWidth, sourceHeight)
+        guard longestSide > maximumEncodedDimension else {
+            return CMVideoDimensions(
+                width: evenDimension(sourceWidth),
+                height: evenDimension(sourceHeight)
+            )
+        }
+
+        let scale = Double(maximumEncodedDimension) / Double(longestSide)
+        return CMVideoDimensions(
+            width: evenDimension(Int32(Double(sourceWidth) * scale)),
+            height: evenDimension(Int32(Double(sourceHeight) * scale))
+        )
+    }
+
     func bitRate(width: Int32, height: Int32) -> Int {
         let pixels = max(1, Int(width) * Int(height))
         let bitsPerPixel: Double
@@ -55,5 +84,9 @@ enum StreamQuality: String, CaseIterable, Codable {
         case .dataSaver: bitsPerPixel = 0.045
         }
         return min(12_000_000, max(1_200_000, Int(Double(pixels) * Double(framesPerSecond) * bitsPerPixel)))
+    }
+
+    private func evenDimension(_ value: Int32) -> Int32 {
+        max(2, (value / 2) * 2)
     }
 }

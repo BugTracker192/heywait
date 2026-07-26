@@ -52,5 +52,24 @@ final class WireProtocolTests: XCTestCase {
         )
         XCTAssertEqual(restored, original)
     }
-}
 
+    func testStreamQualityBoundsNativePhoneResolution() {
+        let balanced = StreamQuality.balanced.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
+        XCTAssertEqual(balanced.width, 664)
+        XCTAssertEqual(balanced.height, 1440)
+
+        let sharp = StreamQuality.sharp.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
+        XCTAssertEqual(sharp.width, 886)
+        XCTAssertEqual(sharp.height, 1920)
+
+        let saver = StreamQuality.dataSaver.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
+        XCTAssertEqual(saver.width, 442)
+        XCTAssertEqual(saver.height, 960)
+    }
+
+    func testStreamQualityKeepsSmallEvenResolution() {
+        let dimensions = StreamQuality.balanced.encodedDimensions(sourceWidth: 750, sourceHeight: 1334)
+        XCTAssertEqual(dimensions.width, 750)
+        XCTAssertEqual(dimensions.height, 1334)
+    }
+}

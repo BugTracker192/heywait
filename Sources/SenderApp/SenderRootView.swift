@@ -264,13 +264,11 @@ private final class BroadcastPickerContainer: UIView {
         picker.preferredExtension = AppConstants.broadcastBundleIdentifier
         picker.showsMicrophoneButton = false
         picker.tintColor = .clear
-        picker.isUserInteractionEnabled = false
         addSubview(picker)
 
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = "Start screen sharing"
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openBroadcastPicker)))
     }
 
     required init?(coder: NSCoder) {
@@ -283,22 +281,6 @@ private final class BroadcastPickerContainer: UIView {
         picker.layoutIfNeeded()
     }
 
-    @objc private func openBroadcastPicker() {
-        picker.layoutIfNeeded()
-        findButton(in: picker)?.sendActions(for: .touchUpInside)
-    }
-
-    private func findButton(in view: UIView) -> UIButton? {
-        if let button = view as? UIButton {
-            return button
-        }
-        for subview in view.subviews {
-            if let button = findButton(in: subview) {
-                return button
-            }
-        }
-        return nil
-    }
 }
 
 private struct BroadcastPicker: UIViewRepresentable {

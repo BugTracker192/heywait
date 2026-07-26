@@ -10,6 +10,7 @@ final class H264Encoder {
     }
 
     var onFrame: ((EncodedFrame) -> Void)?
+    var onFailure: ((String) -> Void)?
 
     private let quality: StreamQuality
     private var session: VTCompressionSession?
@@ -18,6 +19,8 @@ final class H264Encoder {
     private var forceNextKeyFrame = true
     private var lastAcceptedPresentationTime = CMTime.invalid
     private var frameCounter: Int64 = 0
+    private var consecutiveEncodeFailures = 0
+    private var didReportFailure = false
 
     init(quality: StreamQuality) {
         self.quality = quality
@@ -28,9 +31,10 @@ final class H264Encoder {
         let width = Int32(CVPixelBufferGetWidth(imageBuffer))
         let height = Int32(CVPixelBufferGetHeight(imageBuffer))
         guard width > 0, height > 0 else { return }
+        let target = quality.encodedDimensions(sourceWidth: width, sourceHeight: height)
 
-        if session == nil || dimensions.width != width || dimensions.height != height {
-            rebuild(width: width, height: height)
+        if session == nil || dimensions.width != target.width || dimensions.height != target.height {
+            rebuild(width: target.width, height: target.height)
         }
         guard let session else { return }
 
@@ -70,6 +74,12 @@ final class H264Encoder {
         )
         if status != noErr {
             forceNextKeyFrame = true
+            consecutiveEncodeFailures += 1
+            if consecutiveEncodeFailures >= 3 {
+                reportFailure("The H.264 encoder rejected captured frames (VideoToolbox \(status)).")
+            }
+        } else {
+            consecutiveEncodeFailures = 0
         }
     }
 
@@ -91,21 +101,28 @@ final class H264Encoder {
         lastAcceptedPresentationTime = .invalid
         frameCounter = 0
         forceNextKeyFrame = true
+        consecutiveEncodeFailures = 0
 
         var created: VTCompressionSession?
+        let encoderSpecification = [
+            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true
+        ] as CFDictionary
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
             width: width,
             height: height,
             codecType: kCMVideoCodecType_H264,
-            encoderSpecification: nil,
+            encoderSpecification: encoderSpecification,
             imageBufferAttributes: nil,
             compressedDataAllocator: kCFAllocatorDefault,
             outputCallback: Self.outputCallback,
             refcon: Unmanaged.passUnretained(self).toOpaque(),
             compressionSessionOut: &created
         )
-        guard status == noErr, let created else { return }
+        guard status == noErr, let created else {
+            reportFailure("The H.264 encoder could not start (VideoToolbox \(status)).")
+            return
+        }
         session = created
 
         set(created, kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
@@ -115,6 +132,15 @@ final class H264Encoder {
         set(created, kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: quality.framesPerSecond))
         set(created, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: AppConstants.keyFrameInterval))
         set(created, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: 1))
+        let pixelTransferProperties: [CFString: Any] = [
+            kVTPixelTransferPropertyKey_RealTime: true,
+            kVTPixelTransferPropertyKey_ScalingMode: kVTScalingMode_Normal
+        ]
+        set(
+            created,
+            kVTCompressionPropertyKey_PixelTransferProperties,
+            pixelTransferProperties as CFDictionary
+        )
 
         let bitRate = quality.bitRate(width: width, height: height)
         set(created, kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitRate))
@@ -123,7 +149,11 @@ final class H264Encoder {
             kVTCompressionPropertyKey_DataRateLimits,
             [NSNumber(value: bitRate / 8), NSNumber(value: 1)] as CFArray
         )
-        VTCompressionSessionPrepareToEncodeFrames(created)
+        let prepareStatus = VTCompressionSessionPrepareToEncodeFrames(created)
+        if prepareStatus != noErr {
+            invalidate()
+            reportFailure("The H.264 encoder could not prepare (VideoToolbox \(prepareStatus)).")
+        }
     }
 
     private func set(_ session: VTCompressionSession, _ key: CFString, _ value: CFTypeRef) {
@@ -160,6 +190,12 @@ final class H264Encoder {
             videoConfiguration = makeConfiguration(from: formatDescription)
         }
         onFrame?(EncodedFrame(data: encoded, isKeyFrame: isKeyFrame, configuration: videoConfiguration))
+    }
+
+    private func reportFailure(_ message: String) {
+        guard !didReportFailure else { return }
+        didReportFailure = true
+        onFailure?(message)
     }
 
     private func makeConfiguration(from format: CMFormatDescription) -> VideoConfiguration? {
