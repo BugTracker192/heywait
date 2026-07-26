@@ -104,15 +104,12 @@ final class H264Encoder {
         consecutiveEncodeFailures = 0
 
         var created: VTCompressionSession?
-        let encoderSpecification = [
-            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true
-        ] as CFDictionary
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
             width: width,
             height: height,
             codecType: kCMVideoCodecType_H264,
-            encoderSpecification: encoderSpecification,
+            encoderSpecification: nil,
             imageBufferAttributes: nil,
             compressedDataAllocator: kCFAllocatorDefault,
             outputCallback: Self.outputCallback,
