@@ -155,7 +155,7 @@ final class H264DisplayDecoder {
             sampleBuffer,
             key: kCMSampleAttachmentKey_DisplayImmediately,
             value: kCFBooleanTrue,
-            attachmentMode: .shouldNotPropagate
+            attachmentMode: kCMAttachmentMode_ShouldNotPropagate
         )
 
         let render = { [weak renderer] in
