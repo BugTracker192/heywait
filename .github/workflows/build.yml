@@ -1,0 +1,115 @@
+name: Build iOS IPAs
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Xcode 26 build and tests
+    runs-on: macos-26
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Run unit tests
+        run: bash scripts/test.sh
+
+      - name: Build sender
+        run: |
+          xcodebuild \
+            -project ScreenShare.xcodeproj \
+            -scheme ScreenShareSender \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .derived-data \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build receiver
+        run: |
+          xcodebuild \
+            -project ScreenShare.xcodeproj \
+            -scheme ScreenShareReceiver \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .derived-data \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package sideloadable IPAs
+        run: |
+          mkdir -p build
+          bash scripts/package-ipa.sh \
+            '.derived-data/Build/Products/Release-iphoneos/Screen Share Sender.app' \
+            'build/ScreenShare-Sender-unsigned.ipa'
+          bash scripts/package-ipa.sh \
+            '.derived-data/Build/Products/Release-iphoneos/Screen Share.app' \
+            'build/ScreenShare-Receiver-unsigned.ipa'
+          shasum -a 256 build/*.ipa > build/SHA256SUMS.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenShare-${{ github.sha }}
+          path: |
+            build/*.ipa
+            build/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ScreenShare-${{ github.sha }}
+          path: build
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            build/*.ipa \
+            build/SHA256SUMS.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --generate-notes \
+            --title "Screen Share ${GITHUB_REF_NAME}"
+

@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.derived-data/
+build/
+DerivedData/
+ScreenShare.xcodeproj/
+*.xcarchive
+*.ipa
+packages/
+work/
+outputs/
+

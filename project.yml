@@ -1,0 +1,143 @@
+name: ScreenShare
+options:
+  minimumXcodeGenVersion: 2.42.0
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CLANG_ENABLE_MODULES: YES
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  ScreenShareSender:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/SenderApp
+      - path: Resources
+    dependencies:
+      - target: ScreenShareBroadcast
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.screenshare.sender
+        PRODUCT_NAME: Screen Share Sender
+        CODE_SIGN_ENTITLEMENTS: Config/Sender.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+    info:
+      path: Config/Sender-Info.plist
+      properties:
+        CFBundleDisplayName: Screen Share Sender
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: Screen Share uses your local network to find and securely connect to your viewing device.
+        NSBonjourServices:
+          - _screenshare._tcp
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.screenshare.sender
+            CFBundleURLSchemes:
+              - screenshare-sender
+
+  ScreenShareBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/BroadcastExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.screenshare.sender.broadcast
+        PRODUCT_NAME: ScreenShareBroadcast
+        INFOPLIST_KEY_CFBundleDisplayName: Screen Share
+        CODE_SIGN_ENTITLEMENTS: Config/Broadcast.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: Config/Broadcast-Info.plist
+      properties:
+        CFBundleDisplayName: Screen Share
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          NSExtensionAttributes:
+            RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+
+  ScreenShareReceiver:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/ReceiverApp
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.screenshare.receiver
+        PRODUCT_NAME: Screen Share
+        PRODUCT_MODULE_NAME: ScreenShareReceiver
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+    info:
+      path: Config/Receiver-Info.plist
+      properties:
+        CFBundleDisplayName: Screen Share
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        NSLocalNetworkUsageDescription: Screen Share receives an encrypted live screen stream from your paired device.
+        NSBonjourServices:
+          - _screenshare._tcp
+        UIBackgroundModes:
+          - audio
+        UIRequiresFullScreen: true
+        UIViewControllerBasedStatusBarAppearance: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+  ScreenShareTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ScreenShareReceiver
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.screenshare.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  ScreenShareSender:
+    build:
+      targets:
+        ScreenShareSender: all
+  ScreenShareReceiver:
+    build:
+      targets:
+        ScreenShareReceiver: all
+    test:
+      gatherCoverageData: true
+      targets:
+        - ScreenShareTests
