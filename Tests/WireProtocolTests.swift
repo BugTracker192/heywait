@@ -106,13 +106,51 @@ final class WireProtocolTests: XCTestCase {
             height: 2532,
             orientation: 1,
             sps: Data([1, 2, 3]),
-            pps: Data([4, 5])
+            pps: Data([4, 5]),
+            nalUnitHeaderLength: 4,
+            nominalFrameRate: 30
         )
         let restored = try JSONDecoder().decode(
             VideoConfiguration.self,
             from: JSONEncoder().encode(original)
         )
         XCTAssertEqual(restored, original)
+    }
+
+    func testVideoConfigurationDecodesLegacyPayload() throws {
+        let legacyJSON = """
+        {
+          "width": 1170,
+          "height": 2532,
+          "orientation": 1,
+          "sps": "AQID",
+          "pps": "BAU="
+        }
+        """
+        let restored = try JSONDecoder().decode(
+            VideoConfiguration.self,
+            from: Data(legacyJSON.utf8)
+        )
+
+        XCTAssertNil(restored.nalUnitHeaderLength)
+        XCTAssertNil(restored.nominalFrameRate)
+        XCTAssertEqual(restored.effectiveNALUnitHeaderLength, 4)
+        XCTAssertEqual(restored.effectiveFrameRate, 30)
+    }
+
+    func testVideoConfigurationRejectsInvalidPresentationMetadata() {
+        let configuration = VideoConfiguration(
+            width: 1170,
+            height: 2532,
+            orientation: 1,
+            sps: Data([1]),
+            pps: Data([2]),
+            nalUnitHeaderLength: 3,
+            nominalFrameRate: 0
+        )
+
+        XCTAssertEqual(configuration.effectiveNALUnitHeaderLength, 4)
+        XCTAssertEqual(configuration.effectiveFrameRate, 30)
     }
 
     func testStreamQualityBoundsNativePhoneResolution() {

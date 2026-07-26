@@ -20,6 +20,22 @@ struct VideoConfiguration: Codable, Equatable {
     let orientation: UInt32
     let sps: Data
     let pps: Data
+    let nalUnitHeaderLength: Int32?
+    let nominalFrameRate: Int32?
+
+    var effectiveNALUnitHeaderLength: Int32 {
+        guard let nalUnitHeaderLength, [1, 2, 4].contains(nalUnitHeaderLength) else {
+            return 4
+        }
+        return nalUnitHeaderLength
+    }
+
+    var effectiveFrameRate: Int32 {
+        guard let nominalFrameRate, (1...120).contains(nominalFrameRate) else {
+            return 30
+        }
+        return nominalFrameRate
+    }
 }
 
 struct StreamErrorPayload: Codable, Equatable {

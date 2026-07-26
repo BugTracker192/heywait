@@ -230,7 +230,9 @@ final class H264Encoder {
             height: dimensions.height,
             orientation: currentOrientation,
             sps: Data(bytes: spsPointer, count: spsSize),
-            pps: Data(bytes: ppsPointer, count: ppsSize)
+            pps: Data(bytes: ppsPointer, count: ppsSize),
+            nalUnitHeaderLength: nalHeaderLength,
+            nominalFrameRate: quality.framesPerSecond
         )
     }
 

@@ -7,6 +7,7 @@ final class ViewerSession: ObservableObject {
     @Published private(set) var serverState: ReceiverServer.State = .stopped
     @Published private(set) var hasPicture = false
     @Published private(set) var frameCount: UInt64 = 0
+    @Published private(set) var videoStatus: String?
 
     let renderer = VideoRendererView()
     let pictureInPicture: PictureInPictureCoordinator
@@ -20,6 +21,18 @@ final class ViewerSession: ObservableObject {
         decoder = H264DisplayDecoder(renderer: renderer)
         pictureInPicture = PictureInPictureCoordinator(displayLayer: renderer.displayLayer)
 
+        renderer.onReadyForDisplay = { [weak self] in
+            self?.videoStatus = nil
+            self?.hasPicture = true
+        }
+        renderer.onDisplayLayerChanged = { [weak pictureInPicture = self.pictureInPicture] displayLayer in
+            pictureInPicture?.updateDisplayLayer(displayLayer)
+        }
+        decoder.onFailure = { [weak self] message in
+            self?.videoStatus = message
+            self?.hasPicture = false
+        }
+
         pictureInPicture.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
@@ -29,6 +42,9 @@ final class ViewerSession: ObservableObject {
             guard let self else { return }
             if case .connected = state {
                 self.decoder.reset()
+                self.videoStatus = nil
+                self.hasPicture = false
+                self.frameCount = 0
             }
             self.serverState = state
         }
@@ -44,8 +60,15 @@ final class ViewerSession: ObservableObject {
             return "Starting…"
         case .advertising:
             return hasPicture ? "Reconnecting automatically…" : "Ready for sender"
-        case .connected(let senderName):
+        case .connected(let senderName) where hasPicture:
             return "Connected to \(senderName)"
+        case .connected(let senderName):
+            if let videoStatus {
+                return videoStatus
+            }
+            return frameCount > 0
+                ? "Connected to \(senderName) · decoding video…"
+                : "Connected to \(senderName) · waiting for video…"
         case .waiting:
             return "Waiting for Local Network access"
         case .failed(let message):
@@ -57,6 +80,7 @@ final class ViewerSession: ObservableObject {
         identity = ReceiverIdentityStore.shared.rotatePairingCode()
         hasPicture = false
         frameCount = 0
+        videoStatus = nil
         decoder.reset()
         server.start(identity: identity)
     }
@@ -68,9 +92,11 @@ final class ViewerSession: ObservableObject {
             decoder.configure(configuration)
             pictureInPicture.invalidatePlaybackState()
         case .videoFrame:
-            decoder.enqueue(packet.payload)
             frameCount &+= 1
-            hasPicture = true
+            decoder.enqueue(
+                packet.payload,
+                isKeyFrame: packet.flags.contains(.keyFrame)
+            )
         case .orientation:
             guard packet.payload.count == 4 else { return }
             let value = (UInt32(packet.payload[0]) << 24)

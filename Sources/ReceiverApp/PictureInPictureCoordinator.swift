@@ -17,24 +17,7 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
     init(displayLayer: AVSampleBufferDisplayLayer) {
         super.init()
         configureAudioSession()
-
-        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-        let source = AVPictureInPictureController.ContentSource(
-            sampleBufferDisplayLayer: displayLayer,
-            playbackDelegate: self
-        )
-        let controller = AVPictureInPictureController(contentSource: source)
-        controller.delegate = self
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.requiresLinearPlayback = true
-        self.controller = controller
-
-        possibleObservation = controller.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] controller, _ in
-            DispatchQueue.main.async { self?.isPossible = controller.isPictureInPicturePossible }
-        }
-        activeObservation = controller.observe(\.isPictureInPictureActive, options: [.initial, .new]) { [weak self] controller, _ in
-            DispatchQueue.main.async { self?.isActive = controller.isPictureInPictureActive }
-        }
+        configureController(displayLayer: displayLayer)
         foregroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
@@ -44,6 +27,18 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
                 self?.controller?.stopPictureInPicture()
             }
         }
+    }
+
+    func updateDisplayLayer(_ displayLayer: AVSampleBufferDisplayLayer) {
+        controller?.stopPictureInPicture()
+        possibleObservation?.invalidate()
+        possibleObservation = nil
+        activeObservation?.invalidate()
+        activeObservation = nil
+        controller = nil
+        isPossible = false
+        isActive = false
+        configureController(displayLayer: displayLayer)
     }
 
     func toggle() {
@@ -66,6 +61,36 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
             try session.setActive(true)
         } catch {
             // PiP can remain unavailable if another system audio session has priority.
+        }
+    }
+
+    private func configureController(displayLayer: AVSampleBufferDisplayLayer) {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        let source = AVPictureInPictureController.ContentSource(
+            sampleBufferDisplayLayer: displayLayer,
+            playbackDelegate: self
+        )
+        let controller = AVPictureInPictureController(contentSource: source)
+        controller.delegate = self
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.requiresLinearPlayback = true
+        self.controller = controller
+
+        possibleObservation = controller.observe(
+            \.isPictureInPicturePossible,
+            options: [.initial, .new]
+        ) { [weak self] controller, _ in
+            DispatchQueue.main.async {
+                self?.isPossible = controller.isPictureInPicturePossible
+            }
+        }
+        activeObservation = controller.observe(
+            \.isPictureInPictureActive,
+            options: [.initial, .new]
+        ) { [weak self] controller, _ in
+            DispatchQueue.main.async {
+                self?.isActive = controller.isPictureInPictureActive
+            }
         }
     }
 
