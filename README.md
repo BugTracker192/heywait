@@ -5,7 +5,7 @@ Screen Share is a two-app, local-network screen mirroring system:
 - **Screen Share Sender** runs on the jailbroken iPhone (iOS 15.0–16.5.1). It contains a ReplayKit Broadcast Upload Extension, so it can capture the full display after the user starts one system broadcast.
 - **Screen Share** runs on the viewing iPhone (iOS 18–26, with a deployment target of iOS 15). It discovers the sender over Bonjour, decrypts the live H.264 stream, and renders it edge-to-edge with no app watermark or persistent app controls.
 
-The repository has no binary dependencies. XcodeGen creates the project and the GitHub Actions workflow builds both unsigned IPAs on a `macos-26` runner with Xcode 26.
+The repository has no runtime binary dependencies. XcodeGen creates the project and the GitHub Actions workflow builds both IPAs on a `macos-26` runner with Xcode 26. The sender is fake-signed with `ldid` so TrollStore can preserve the App Group shared with its ReplayKit extension; the receiver remains unsigned for certificate-based sideloading.
 
 ## What is implemented
 
@@ -19,7 +19,7 @@ The repository has no binary dependencies. XcodeGen creates the project and the 
 - Picture in Picture for supported background viewing.
 - Normal iOS screen recording of the unprotected viewer surface.
 - Portrait and landscape handling.
-- GitHub Actions tests, unsigned IPA packaging, checksums, artifacts, and tagged releases.
+- GitHub Actions tests, TrollStore entitlement signing, IPA packaging, checksums, artifacts, and tagged releases.
 
 System-protected or FairPlay video may be blank in a capture. iOS itself decides that behavior.
 
@@ -62,7 +62,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for packet framing, encryption,
 
 Pushing a tag such as `v1.0.0` also creates a GitHub Release with the same files.
 
-The IPAs are deliberately unsigned. TrollStore signs the sender during installation; a certificate-based sideloading service resigns the receiver. This avoids putting certificates or provisioning profiles in GitHub.
+The receiver IPA is deliberately unsigned. The sender filename is retained for compatibility, but its two executables are fake-signed with their App Group entitlements using `ldid`; TrollStore preserves those entitlements while installing it. No Apple certificate or provisioning profile is stored in GitHub.
 
 ### 2. Install the sender
 
@@ -72,7 +72,7 @@ Recommended for the iOS 15.0–16.5.1 jailbroken phone:
 2. Open **Screen Share Sender** once.
 3. Allow **Local Network** access.
 
-The sender includes a nested Broadcast Upload Extension and an App Group. TrollStore is the most reliable installation route because ordinary free/third-party signing profiles frequently do not preserve an App Group shared by an app and extension.
+The sender includes a nested Broadcast Upload Extension and an App Group. Install it directly with TrollStore; do not pass the sender IPA through another signing service first, because that service may remove the shared App Group entitlement.
 
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 

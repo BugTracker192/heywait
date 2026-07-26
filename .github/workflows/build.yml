@@ -31,12 +31,16 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Install XcodeGen
+      - name: Install build tools
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then
             brew install xcodegen
           fi
+          if ! command -v ldid >/dev/null 2>&1; then
+            brew install ldid
+          fi
           xcodegen --version
+          command -v ldid
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -68,7 +72,12 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Verify packaged privacy declarations
+      - name: Embed TrollStore sender entitlements
+        run: |
+          bash scripts/fakesign-trollstore.sh \
+            '.derived-data/Build/Products/Release-iphoneos/Screen Share Sender.app'
+
+      - name: Verify packaged declarations and extension
         run: |
           sender_info='.derived-data/Build/Products/Release-iphoneos/Screen Share Sender.app/Info.plist'
           receiver_info='.derived-data/Build/Products/Release-iphoneos/ScreenShareReceiver.app/Info.plist'
@@ -81,6 +90,8 @@ jobs:
           test -x "${broadcast_app}/ScreenShareBroadcast"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${broadcast_info}")" = 'com.apple.broadcast-services-upload'
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionAttributes:RPBroadcastProcessMode' "${broadcast_info}")" = 'RPBroadcastProcessModeSampleBuffer'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' build/embedded-entitlements/sender.plist)" = 'group.dev.screenshare.sender'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' build/embedded-entitlements/broadcast.plist)" = 'group.dev.screenshare.sender'
 
       - name: Package sideloadable IPAs
         run: |

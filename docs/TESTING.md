@@ -10,7 +10,7 @@ GitHub Actions proves that both app targets and unit tests compile under Xcode 2
 
 ## Installation and first launch
 
-- Install the unsigned sender IPA with TrollStore.
+- Install the CI sender IPA directly with TrollStore and verify TrollStore reports the shared App Group entitlement on both embedded executables.
 - Verify the nested `ScreenShareBroadcast.appex` is present.
 - Open sender and accept Local Network once.
 - Install/resign receiver with the intended third-party certificate service.
@@ -64,4 +64,3 @@ If the extension is terminated under memory pressure, lower the sharp preset bit
 - Reopening the receiver returns to the same renderer without a startup animation.
 - Control Center screen recording records normal mirrored content and orientation changes.
 - Document the iOS recording indicator and any protected black surfaces.
-
