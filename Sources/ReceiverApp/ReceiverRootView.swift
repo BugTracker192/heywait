@@ -62,7 +62,6 @@ struct ReceiverRootView: View {
                 Text("PAIRING CODE")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                        .kerning(1.6)
                 Text(session.identity.pairingCode)
                     .font(.system(size: 23, weight: .bold, design: .monospaced))
                     .minimumScaleFactor(0.65)
