@@ -72,12 +72,13 @@ private struct WireHeader {
     static func decode(_ data: Data) throws -> WireHeader {
         guard data.count >= byteCount else { throw WireProtocolError.invalidMagic }
         guard Data(data.prefix(4)) == magic else { throw WireProtocolError.invalidMagic }
-        let version = data[4]
+        let version = data.byte(atOffset: 4)
         guard version == AppConstants.protocolVersion else {
             throw WireProtocolError.unsupportedVersion(version)
         }
-        guard let kind = PacketKind(rawValue: data[5]) else {
-            throw WireProtocolError.invalidPacketKind(data[5])
+        let rawKind = data.byte(atOffset: 5)
+        guard let kind = PacketKind(rawValue: rawKind) else {
+            throw WireProtocolError.invalidPacketKind(rawKind)
         }
         let flags = PacketFlags(rawValue: data.readUInt16(at: 6))
         let sequence = data.readUInt64(at: 8)
@@ -149,15 +150,16 @@ final class PacketStreamParser {
         var packets: [WirePacket] = []
 
         while buffer.count >= WireHeader.byteCount {
-            let headerData = Data(buffer.prefix(WireHeader.byteCount))
+            let headerEnd = buffer.index(buffer.startIndex, offsetBy: WireHeader.byteCount)
+            let headerData = Data(buffer[buffer.startIndex..<headerEnd])
             let header = try WireHeader.decode(headerData)
             let totalLength = WireHeader.byteCount + header.payloadLength
             guard buffer.count >= totalLength else { break }
 
-            let payloadRange = WireHeader.byteCount..<totalLength
-            let encryptedPayload = Data(buffer[payloadRange])
+            let packetEnd = buffer.index(buffer.startIndex, offsetBy: totalLength)
+            let encryptedPayload = Data(buffer[headerEnd..<packetEnd])
             packets.append(try codec.decode(headerData: headerData, encryptedPayload: encryptedPayload))
-            buffer.removeFirst(totalLength)
+            buffer.removeSubrange(buffer.startIndex..<packetEnd)
         }
         return packets
     }
@@ -169,15 +171,19 @@ private extension Data {
         Swift.withUnsafeBytes(of: &bigEndian) { append(contentsOf: $0) }
     }
 
+    func byte(atOffset offset: Int) -> UInt8 {
+        self[index(startIndex, offsetBy: offset)]
+    }
+
     func readUInt16(at offset: Int) -> UInt16 {
-        (UInt16(self[offset]) << 8) | UInt16(self[offset + 1])
+        (UInt16(byte(atOffset: offset)) << 8) | UInt16(byte(atOffset: offset + 1))
     }
 
     func readUInt32(at offset: Int) -> UInt32 {
-        (UInt32(self[offset]) << 24)
-            | (UInt32(self[offset + 1]) << 16)
-            | (UInt32(self[offset + 2]) << 8)
-            | UInt32(self[offset + 3])
+        (UInt32(byte(atOffset: offset)) << 24)
+            | (UInt32(byte(atOffset: offset + 1)) << 16)
+            | (UInt32(byte(atOffset: offset + 2)) << 8)
+            | UInt32(byte(atOffset: offset + 3))
     }
 
     func readUInt64(at offset: Int) -> UInt64 {
