@@ -1,0 +1,216 @@
+import Foundation
+import Network
+
+final class BrowserWaitingServer {
+    private let queue = DispatchQueue(label: "dev.screenshare.browser.waiting")
+    private var listener: NWListener?
+    private var clients: [ObjectIdentifier: BrowserWaitingClient] = [:]
+    private var accessKey = ""
+
+    func start(accessKey: String) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.stopInternal()
+            self.accessKey = PairingSecret.normalize(accessKey)
+            guard PairingSecret.isValid(self.accessKey),
+                  let port = NWEndpoint.Port(rawValue: AppConstants.browserViewerPort) else {
+                return
+            }
+
+            let tcp = NWProtocolTCP.Options()
+            tcp.noDelay = true
+            let parameters = NWParameters(tls: nil, tcp: tcp)
+            parameters.includePeerToPeer = true
+
+            do {
+                let listener = try NWListener(using: parameters, on: port)
+                self.listener = listener
+                listener.stateUpdateHandler = { [weak self, weak listener] state in
+                    guard let self, let listener, listener === self.listener else { return }
+                    if case .failed = state {
+                        self.stopInternal()
+                    }
+                }
+                listener.newConnectionHandler = { [weak self] connection in
+                    self?.accept(connection)
+                }
+                listener.start(queue: self.queue)
+            } catch {
+                // The ReplayKit extension may already own the port.
+            }
+        }
+    }
+
+    func stop() {
+        queue.async { [weak self] in
+            self?.stopInternal()
+        }
+    }
+
+    private func accept(_ connection: NWConnection) {
+        guard clients.count < AppConstants.maximumBrowserClients else {
+            connection.cancel()
+            return
+        }
+        let client = BrowserWaitingClient(
+            connection: connection,
+            queue: queue,
+            accessKey: accessKey
+        )
+        let identifier = ObjectIdentifier(client)
+        clients[identifier] = client
+        client.onStop = { [weak self, weak client] in
+            guard let self, let client else { return }
+            self.clients.removeValue(forKey: ObjectIdentifier(client))
+        }
+        client.start()
+    }
+
+    private func stopInternal() {
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        listener = nil
+        for client in Array(clients.values) {
+            client.stop()
+        }
+        clients.removeAll()
+    }
+}
+
+private final class BrowserWaitingClient {
+    var onStop: (() -> Void)?
+
+    private let connection: NWConnection
+    private let queue: DispatchQueue
+    private let accessKey: String
+    private var request = Data()
+    private var stopped = false
+
+    init(connection: NWConnection, queue: DispatchQueue, accessKey: String) {
+        self.connection = connection
+        self.queue = queue
+        self.accessKey = accessKey
+    }
+
+    func start() {
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                self?.receiveRequest()
+            case .failed, .cancelled:
+                self?.stop()
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+    }
+
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+        onStop?()
+    }
+
+    private func receiveRequest() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 8 * 1024) { [weak self] data, _, isComplete, error in
+            guard let self, !self.stopped else { return }
+            if let data {
+                self.request.append(data)
+            }
+            if self.request.count > 16 * 1024 {
+                self.respond(status: "431 Request Header Fields Too Large", body: "Request too large")
+            } else if self.request.range(of: Data("\r\n\r\n".utf8)) != nil {
+                self.handleRequest()
+            } else if isComplete || error != nil {
+                self.stop()
+            } else {
+                self.receiveRequest()
+            }
+        }
+    }
+
+    private func handleRequest() {
+        guard let text = String(data: request, encoding: .utf8),
+              let requestLine = text.components(separatedBy: "\r\n").first else {
+            respond(status: "400 Bad Request", body: "Bad request")
+            return
+        }
+        let pieces = requestLine.split(separator: " ", maxSplits: 2).map(String.init)
+        guard pieces.count == 3,
+              pieces[0] == "GET",
+              let components = URLComponents(string: "http://screenshare.local\(pieces[1])"),
+              components.queryItems?.first(where: { $0.name == "k" })?.value == accessKey else {
+            respond(status: "403 Forbidden", body: "Invalid or expired Screen Share link")
+            return
+        }
+
+        if components.path == "/" {
+            respond(
+                status: "200 OK",
+                contentType: "text/html; charset=utf-8",
+                body: waitingPage
+            )
+        } else {
+            respond(status: "503 Service Unavailable", body: "Broadcast is not ready")
+        }
+    }
+
+    private var waitingPage: String {
+        """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+          <meta name="theme-color" content="#000000">
+          <title>Screen Share</title>
+          <style>
+            html,body{width:100%;height:100%;margin:0;background:#000;color:#fff;font:17px -apple-system,sans-serif}
+            body{display:flex;align-items:center;justify-content:center;text-align:center}
+            p{margin:0 24px;color:#aaa}strong{display:block;color:#fff;font-size:22px;margin-bottom:10px}
+          </style>
+        </head>
+        <body>
+          <p><strong>Waiting for Screen Share...</strong>Start the broadcast on the sender. This page will connect automatically.</p>
+          <script>
+            const key='\(accessKey)';
+            async function probe(){
+              try{
+                const r=await fetch('/health?k='+key+'&t='+Date.now(),{cache:'no-store'});
+                if(r.ok){ location.reload(); return; }
+              }catch(_){}
+              setTimeout(probe,700);
+            }
+            probe();
+          </script>
+        </body>
+        </html>
+        """
+    }
+
+    private func respond(
+        status: String,
+        contentType: String = "text/plain; charset=utf-8",
+        body: String
+    ) {
+        let data = Data(body.utf8)
+        let headers = """
+        HTTP/1.1 \(status)\r
+        Content-Type: \(contentType)\r
+        Content-Length: \(data.count)\r
+        Cache-Control: no-store\r
+        Referrer-Policy: no-referrer\r
+        X-Content-Type-Options: nosniff\r
+        Connection: close\r
+        \r
+        """
+        var response = Data(headers.utf8)
+        response.append(data)
+        connection.send(content: response, completion: .contentProcessed { [weak self] _ in
+            self?.stop()
+        })
+    }
+}

@@ -35,9 +35,13 @@ final class SenderConfigurationStore {
     }
 
     func load() -> SenderConfiguration {
+        // The containing app and ReplayKit extension are separate processes.
+        // Refresh the App Group domain before selecting a transport.
+        defaults.synchronize()
         let savedBrowserKey = defaults.string(forKey: Key.browserAccessKey) ?? PairingSecret.generate()
         if defaults.string(forKey: Key.browserAccessKey) == nil {
             defaults.set(PairingSecret.normalize(savedBrowserKey), forKey: Key.browserAccessKey)
+            defaults.synchronize()
         }
         return SenderConfiguration(
             deliveryMode: DeliveryMode(rawValue: defaults.string(forKey: Key.deliveryMode) ?? "") ?? .nativeReceiver,
@@ -54,6 +58,7 @@ final class SenderConfigurationStore {
         defaults.set(PairingSecret.normalize(configuration.pairingCode), forKey: Key.pairingCode)
         defaults.set(configuration.quality.rawValue, forKey: Key.quality)
         defaults.set(PairingSecret.normalize(configuration.browserAccessKey), forKey: Key.browserAccessKey)
+        defaults.synchronize()
     }
 }
 

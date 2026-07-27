@@ -240,6 +240,31 @@ final class WireProtocolTests: XCTestCase {
         )
     }
 
+    func testBrowserConfigurationPersistsAcrossStoreInstances() {
+        let suiteName = "dev.screenshare.tests.\(UUID().uuidString)"
+        guard let writerDefaults = UserDefaults(suiteName: suiteName),
+              let readerDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer {
+            writerDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let expected = SenderConfiguration(
+            deliveryMode: .browser,
+            receiverServiceName: "",
+            pairingCode: "",
+            quality: .sharp,
+            browserAccessKey: "23456789ABCDEFGH"
+        )
+
+        SenderConfigurationStore(defaults: writerDefaults).save(expected)
+        let actual = SenderConfigurationStore(defaults: readerDefaults).load()
+
+        XCTAssertEqual(actual, expected)
+    }
+
     func testRemoteVideoGeometryFollowsIntendedDisplayAspect() {
         XCTAssertEqual(
             ReceiverOrientationCoordinator.interfaceOrientations(

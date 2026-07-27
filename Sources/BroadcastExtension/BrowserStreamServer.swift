@@ -8,6 +8,7 @@ final class BrowserStreamServer {
     private let queue = DispatchQueue(label: "dev.screenshare.browser.http", qos: .userInteractive)
     private let clientCountLock = NSLock()
     private var listener: NWListener?
+    private var listenerWaitingFailure: DispatchWorkItem?
     private var clients: [ObjectIdentifier: BrowserHTTPClient] = [:]
     private var streamingClientCount = 0
     private var latestJPEG: Data?
@@ -43,8 +44,29 @@ final class BrowserStreamServer {
                 self.listener = listener
                 listener.stateUpdateHandler = { [weak self, weak listener] state in
                     guard let self, let listener, listener === self.listener else { return }
-                    if case .failed(let error) = state {
+                    switch state {
+                    case .waiting(let error):
+                        // The containing app may still be releasing the waiting
+                        // page listener. NWListener can recover from this state,
+                        // so allow the port handoff a short grace period.
+                        self.listenerWaitingFailure?.cancel()
+                        let failure = DispatchWorkItem { [weak self, weak listener] in
+                            guard let self, let listener, listener === self.listener else { return }
+                            self.fail(
+                                "Browser viewer is waiting for the local network: \(error.localizedDescription)"
+                            )
+                        }
+                        self.listenerWaitingFailure = failure
+                        self.queue.asyncAfter(deadline: .now() + 4, execute: failure)
+                    case .ready:
+                        self.listenerWaitingFailure?.cancel()
+                        self.listenerWaitingFailure = nil
+                    case .failed(let error):
+                        self.listenerWaitingFailure?.cancel()
+                        self.listenerWaitingFailure = nil
                         self.fail("Browser viewer could not start: \(error.localizedDescription)")
+                    default:
+                        break
                     }
                 }
                 listener.newConnectionHandler = { [weak self] connection in
@@ -110,6 +132,8 @@ final class BrowserStreamServer {
     }
 
     private func stopInternal() {
+        listenerWaitingFailure?.cancel()
+        listenerWaitingFailure = nil
         listener?.stateUpdateHandler = nil
         listener?.cancel()
         listener = nil
@@ -256,13 +280,20 @@ private final class BrowserHTTPClient {
             *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;background:#000;overflow:hidden}
             body{display:flex;align-items:center;justify-content:center}
             img{width:100vw;height:100vh;object-fit:contain;background:#000}
+            #status{position:fixed;color:#aaa;font:17px -apple-system,sans-serif;text-align:center}
           </style>
         </head>
         <body>
-          <img id="video" src="/stream?k=\(accessKey)" alt="Live Screen Share">
+          <div id="status">Connecting to live screen...</div>
+          <img id="video" alt="Live Screen Share">
           <script>
             const v=document.getElementById('video');
+            const s=document.getElementById('status');
+            function connect(){ v.src='/stream?k=\(accessKey)&t='+Date.now(); }
+            v.onload=()=>{s.style.display='none'};
+            v.onerror=()=>{s.style.display='block';setTimeout(connect,700)};
             v.addEventListener('click',()=>document.documentElement.requestFullscreen?.());
+            connect();
           </script>
         </body>
         </html>

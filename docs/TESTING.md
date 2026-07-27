@@ -73,6 +73,7 @@ If the extension is terminated under memory pressure, lower the sharp preset bit
 ## Browser mode
 
 - Select Browser, save, and verify the QR and copied URL contain the sender's current Wi-Fi IPv4 address, port `49373`, and a random access key.
+- Open the link before starting the broadcast; verify it shows the black waiting page and automatically changes to live video after the extension starts.
 - Start the broadcast and open the URL from Safari and at least one other browser on the same LAN.
 - Verify a URL with a missing or one-character-wrong key returns HTTP 403.
 - Verify portrait and both landscape directions render upright and preserve aspect ratio.

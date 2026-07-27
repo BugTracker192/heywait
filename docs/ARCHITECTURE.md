@@ -4,7 +4,9 @@
 
 ### Sender app
 
-The sender app is a SwiftUI configuration surface. It stores the selected delivery mode and quality preset in `group.dev.screenshare.sender`, then presents Apple's `RPSystemBroadcastPickerView`. Native mode also stores the selected Bonjour receiver and pairing code. Browser mode stores a random access key and shows a QR/local URL derived from the sender's Wi-Fi address.
+The sender app is a SwiftUI configuration surface. It stores the selected delivery mode and quality preset in `group.dev.screenshare.sender`, explicitly synchronizes that cross-process domain, then presents Apple's `RPSystemBroadcastPickerView`. Native mode also stores the selected Bonjour receiver and pairing code. Browser mode stores a random access key and shows a QR/local URL derived from the sender's Wi-Fi address.
+
+While Browser setup is foregrounded, Sender temporarily serves a black waiting page on the generated URL. It releases the listener when the app resigns active for the broadcast sheet. JavaScript on that already-loaded page retries the health endpoint until the extension binds the same port, then reloads into the live viewer.
 
 ### Broadcast Upload Extension
 

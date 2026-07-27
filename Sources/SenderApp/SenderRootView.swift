@@ -1,6 +1,7 @@
 import Combine
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Foundation
 import ReplayKit
 import SwiftUI
 import UIKit
@@ -14,7 +15,9 @@ final class SenderViewModel: ObservableObject {
     @Published private(set) var didSave: Bool
 
     let discovery = ReceiverDiscovery()
+    private let browserWaitingServer = BrowserWaitingServer()
     private var cancellables: Set<AnyCancellable> = []
+    private var browserBootstrapWorkItem: DispatchWorkItem?
 
     init() {
         let saved = SenderConfigurationStore.shared.load()
@@ -66,6 +69,27 @@ final class SenderViewModel: ObservableObject {
     func regenerateBrowserLink() {
         browserAccessKey = PairingSecret.normalize(PairingSecret.generate())
         didSave = false
+        startBrowserBootstrap()
+    }
+
+    func startBrowserBootstrap(after delay: TimeInterval = 0) {
+        browserBootstrapWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.deliveryMode == .browser,
+                  !UIScreen.main.isCaptured else {
+                return
+            }
+            self.browserWaitingServer.start(accessKey: self.browserAccessKey)
+        }
+        browserBootstrapWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    func stopBrowserBootstrap() {
+        browserBootstrapWorkItem?.cancel()
+        browserBootstrapWorkItem = nil
+        browserWaitingServer.stop()
     }
 
     func save() {
@@ -74,10 +98,19 @@ final class SenderViewModel: ObservableObject {
         browserAccessKey = PairingSecret.normalize(browserAccessKey)
         SenderConfigurationStore.shared.save(configuration)
         didSave = true
+        if deliveryMode == .browser {
+            startBrowserBootstrap()
+        }
+    }
+
+    deinit {
+        browserBootstrapWorkItem?.cancel()
+        browserWaitingServer.stop()
     }
 }
 
 struct SenderRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = SenderViewModel()
 
     var body: some View {
@@ -114,19 +147,38 @@ struct SenderRootView: View {
         .onAppear {
             if model.deliveryMode == .nativeReceiver {
                 model.discovery.start()
+            } else {
+                model.startBrowserBootstrap()
             }
         }
-        .onDisappear { model.discovery.stop() }
+        .onDisappear {
+            model.discovery.stop()
+            model.stopBrowserBootstrap()
+        }
         .onChange(of: model.deliveryMode) { mode in
             model.markDirty()
             if mode == .nativeReceiver {
+                model.stopBrowserBootstrap()
                 model.discovery.start()
             } else {
                 model.discovery.stop()
+                model.startBrowserBootstrap()
             }
         }
         .onChange(of: model.pairingCode) { _ in model.markDirty() }
         .onChange(of: model.quality) { _ in model.markDirty() }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .inactive, .background:
+                model.stopBrowserBootstrap()
+            case .active:
+                // Give the ReplayKit extension first chance to bind the live
+                // stream port after the system broadcast sheet closes.
+                model.startBrowserBootstrap(after: 4)
+            @unknown default:
+                break
+            }
+        }
     }
 
     private var header: some View {
@@ -271,7 +323,7 @@ struct SenderRootView: View {
                     .font(.caption)
 
                     Text(
-                        "Save this mode, start sharing, then scan or open the link on a device connected to the same Wi-Fi. Tap the video once for browser fullscreen."
+                        "You can scan this now. The browser waits on a black page, then connects automatically after the broadcast starts. Tap the video once for fullscreen."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -365,7 +417,9 @@ struct SenderRootView: View {
                     }
 
                     if broadcastEnabled {
-                        BroadcastPicker()
+                        BroadcastPicker {
+                            model.stopBrowserBootstrap()
+                        }
                             .frame(maxWidth: .infinity, minHeight: 58)
                             .accessibilityLabel("Start screen sharing")
                     }
@@ -416,8 +470,10 @@ private enum BrowserQRCode {
 
 private final class BroadcastPickerContainer: UIView {
     private let picker: RPSystemBroadcastPickerView
+    private let onTap: () -> Void
 
-    override init(frame: CGRect) {
+    init(frame: CGRect, onTap: @escaping () -> Void) {
+        self.onTap = onTap
         picker = RPSystemBroadcastPickerView(
             frame: CGRect(x: 0, y: 0, width: max(frame.width, 58), height: max(frame.height, 58))
         )
@@ -431,6 +487,9 @@ private final class BroadcastPickerContainer: UIView {
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = "Start screen sharing"
+        DispatchQueue.main.async { [weak self] in
+            self?.attachTapObserver(to: self?.picker)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -443,11 +502,34 @@ private final class BroadcastPickerContainer: UIView {
         picker.layoutIfNeeded()
     }
 
+    @objc private func broadcastButtonTouched() {
+        onTap()
+    }
+
+    private func attachTapObserver(to view: UIView?) {
+        guard let view else { return }
+        if let control = view as? UIControl {
+            control.addTarget(
+                self,
+                action: #selector(broadcastButtonTouched),
+                for: .touchDown
+            )
+        }
+        for child in view.subviews {
+            attachTapObserver(to: child)
+        }
+    }
+
 }
 
 private struct BroadcastPicker: UIViewRepresentable {
+    let onTap: () -> Void
+
     func makeUIView(context: Context) -> BroadcastPickerContainer {
-        BroadcastPickerContainer(frame: CGRect(x: 0, y: 0, width: 300, height: 58))
+        BroadcastPickerContainer(
+            frame: CGRect(x: 0, y: 0, width: 300, height: 58),
+            onTap: onTap
+        )
     }
 
     func updateUIView(_ uiView: BroadcastPickerContainer, context: Context) {}
