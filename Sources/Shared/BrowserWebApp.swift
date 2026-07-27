@@ -14,6 +14,7 @@ enum BrowserWebApp {
             "start_url": "/?k=\(key)",
             "scope": "/",
             "display": "standalone",
+            "orientation": "any",
             "background_color": "#000000",
             "theme_color": "#000000",
             "icons": [

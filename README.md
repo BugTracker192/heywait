@@ -4,7 +4,7 @@ Screen Share is a local-network screen mirroring system with native-app and brow
 
 - **Screen Share Sender** runs on the jailbroken iPhone (iOS 15.0–16.5.1). It contains a ReplayKit Broadcast Upload Extension, so it can capture the full display after the user starts one system broadcast.
 - **Screen Share** runs on the viewing iPhone (iOS 18–26, with a deployment target of iOS 15). It discovers the sender over Bonjour, decrypts the live H.264 stream, and renders it edge-to-edge with no app watermark or persistent app controls.
-- **Browser mode** needs no receiver installation. The broadcast extension hosts a token-protected local URL and MJPEG stream that opens from the generated link or QR code in Safari and other browsers on the same Wi-Fi.
+- **Browser mode** needs no receiver installation. The broadcast extension hosts a token-protected local URL that uses hardware H.264 with WebCodecs on current browsers and retains MJPEG as a compatibility fallback.
 
 The repository has no runtime binary dependencies. XcodeGen creates the project and the GitHub Actions workflow builds both IPAs on a `macos-26` runner with Xcode 26. The sender is fake-signed with `ldid` so TrollStore can preserve the App Group shared with its ReplayKit extension; the receiver remains unsigned for certificate-based sideloading.
 
@@ -47,11 +47,11 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-In Browser mode, the extension instead listens on TCP port `49373`, requires the random access key embedded in the generated URL, converts bounded ReplayKit samples to JPEG, and sends only the newest available frame to each browser. Native and Browser modes are mutually exclusive per broadcast, so browser JPEG work cannot reduce native H.264 throughput. The browser viewer also exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
+In Browser mode, the extension instead listens on TCP port `49373` and requires the random access key embedded in the generated URL. Current browsers receive the same real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs; this removes the per-frame JPEG bottleneck and targets 60 FPS for Balanced/Sharp. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. Native and Browser modes remain mutually exclusive per broadcast. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
 
 The Sender app temporarily owns the same port while its Browser setup screen is foregrounded and serves a black waiting page. It releases the listener before the ReplayKit sheet launches. The page polls a health endpoint and reloads automatically as soon as the broadcast extension takes ownership. Sender also explicitly synchronizes App Group preferences before launch so the separate extension process cannot read the previous delivery mode.
 
-Browser responses and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
+Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for packet framing, encryption, reconnection, and latency details.
 
@@ -193,7 +193,9 @@ This design was checked against current documentation on 2026-07-27:
 - Apple recommends VideoToolbox real-time and low-latency encoder configuration for conferencing: [Encoding video for low-latency conferencing](https://developer.apple.com/documentation/videotoolbox/encoding-video-for-low-latency-conferencing).
 - Network.framework's `contentProcessed` completion reports when the networking stack has processed a send. The sender pipelines a bounded number of ordered sends instead of serializing the capture loop on each completion: [`NWConnection.send`](https://developer.apple.com/documentation/network/nwconnection/send(content:contentcontext:iscomplete:completion:)).
 - Network.framework supports a fixed-port local listener for the receiver-free browser endpoint: [`NWListener`](https://developer.apple.com/documentation/network/nwlistener).
-- Core Image renders the scaled capture to `CGImage`, and Image I/O encodes the bounded JPEG frames for Browser mode: [`CIContext.createCGImage`](https://developer.apple.com/documentation/coreimage/cicontext/creategcimage(_:from:format:colorspace:)).
+- Core Image provides a direct bounded JPEG representation for the compatibility fallback, avoiding an extra intermediate `CGImage`: [`CIContext.jpegRepresentation`](https://developer.apple.com/documentation/coreimage/cicontext/jpegrepresentation(of:colorspace:options:)).
+- Safari 16.4 and later exposes video WebCodecs for low-level real-time decoding; Browser mode uses it for the hardware H.264 path and keeps MJPEG for browsers without the API: [WebKit features in Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/).
+- A manifest with standalone display mode removes browser-provided toolbar UI for an installed Home Screen web app, while iOS remains responsible for its system status indicators: [What’s new in web apps](https://developer.apple.com/videos/play/wwdc2023/10120/).
 - Apple provides `UIWindowScene.requestGeometryUpdate` to request landscape/portrait scene geometry; the receiver uses the remote video's intended display aspect so it fills the matching screen orientation: [`requestGeometryUpdate`](https://developer.apple.com/documentation/uikit/uiwindowscene/requestgeometryupdate(_:errorhandler:)).
 - VideoToolbox's expected-frame-rate property is an encoder hint, not a guarantee; delivered FPS still depends on ReplayKit sample delivery, device hardware, thermals, and network capacity: [`kVTCompressionPropertyKey_ExpectedFrameRate`](https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_expectedframerate).
 - TrollStore currently documents support through iOS 16.6.1, the 16.7 RC build, and iOS 17.0: [TrollStore compatibility](https://github.com/opa334/TrollStore).

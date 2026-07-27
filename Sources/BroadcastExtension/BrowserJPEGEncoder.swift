@@ -1,16 +1,13 @@
 import CoreImage
 import CoreMedia
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 final class BrowserJPEGEncoder {
     var onFrame: ((Data) -> Void)?
 
     private let quality: StreamQuality
     private let context = CIContext(options: [
-        .cacheIntermediates: false,
-        .priorityRequestLow: true
+        .cacheIntermediates: false
     ])
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
     private let queue = DispatchQueue(label: "dev.screenshare.browser.jpeg", qos: .userInteractive)
@@ -80,32 +77,10 @@ final class BrowserJPEGEncoder {
                 y: -image.extent.origin.y
             )
         )
-        guard let cgImage = context.createCGImage(
-            translated,
-            from: translated.extent,
-            format: .RGBA8,
-            colorSpace: colorSpace
-        ) else {
-            return nil
-        }
-
-        let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            output,
-            UTType.jpeg.identifier as CFString,
-            1,
-            nil
-        ) else {
-            return nil
-        }
-        CGImageDestinationAddImage(
-            destination,
-            cgImage,
-            [
-                kCGImageDestinationLossyCompressionQuality: quality.browserJPEGQuality
-            ] as CFDictionary
+        return context.jpegRepresentation(
+            of: translated,
+            colorSpace: colorSpace,
+            options: [.lossyCompressionQuality: quality.browserJPEGQuality]
         )
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return output as Data
     }
 }

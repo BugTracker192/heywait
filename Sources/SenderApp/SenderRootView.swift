@@ -323,7 +323,7 @@ struct SenderRootView: View {
                     .font(.caption)
 
                     Text(
-                        "You can scan this now. The browser waits on a black page, then connects automatically after the broadcast starts. Tap the video once for fullscreen."
+                        "You can scan this now. The browser waits on a black page, then connects automatically after the broadcast starts. Add it to the Home Screen for the standalone viewer."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -352,7 +352,11 @@ struct SenderRootView: View {
                 .pickerStyle(.segmented)
                 Text(
                     model.deliveryMode == .browser
-                        ? "\(model.quality.browserFramesPerSecond) FPS browser target; native mode is faster."
+                        ? (
+                            model.quality == .dataSaver
+                                ? "30 FPS hardware target for weaker Wi-Fi."
+                                : "60 FPS hardware H.264 target with automatic JPEG fallback."
+                        )
                         : (
                             model.quality == .dataSaver
                                 ? "30 FPS target for weaker Wi-Fi."

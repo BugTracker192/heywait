@@ -274,6 +274,7 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(manifest["name"] as? String, "Screen Share")
         XCTAssertEqual(manifest["short_name"] as? String, "Screen Share")
         XCTAssertEqual(manifest["display"] as? String, "standalone")
+        XCTAssertEqual(manifest["orientation"] as? String, "any")
         XCTAssertEqual(manifest["start_url"] as? String, "/?k=23456789ABCDEFGH")
         XCTAssertTrue(BrowserWebApp.iconPNG.starts(with: [0x89, 0x50, 0x4E, 0x47]))
     }

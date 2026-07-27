@@ -7,6 +7,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var encoder: H264Encoder?
     private var browserServer: BrowserStreamServer?
     private var browserEncoder: BrowserJPEGEncoder?
+    private var browserH264Encoder: H264Encoder?
     private var isPaused = false
     private var lastOrientation: UInt32 = 1
     private var isFinishing = false
@@ -47,12 +48,23 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
         case .browser:
             let server = BrowserStreamServer(accessKey: configuration.browserAccessKey)
-            let encoder = BrowserJPEGEncoder(quality: configuration.quality)
+            let jpegEncoder = BrowserJPEGEncoder(quality: configuration.quality)
+            let h264Encoder = H264Encoder(quality: configuration.quality)
             self.browserServer = server
-            self.browserEncoder = encoder
+            self.browserEncoder = jpegEncoder
+            self.browserH264Encoder = h264Encoder
 
-            encoder.onFrame = { [weak server] jpeg in
+            jpegEncoder.onFrame = { [weak server] jpeg in
                 server?.publish(jpeg: jpeg)
+            }
+            h264Encoder.onFrame = { [weak server] frame in
+                server?.publish(h264: frame)
+            }
+            h264Encoder.onFailure = { [weak self] message in
+                self?.stopWithError(message)
+            }
+            server.onH264ClientReady = { [weak h264Encoder] in
+                h264Encoder?.requestKeyFrame()
             }
             server.onFailure = { [weak self] message in
                 self?.stopWithError(message)
@@ -74,11 +86,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
         isFinishing = true
         transport?.stop()
         encoder?.invalidate()
+        browserH264Encoder?.invalidate()
         browserServer?.stop()
         transport = nil
         encoder = nil
         browserServer = nil
         browserEncoder = nil
+        browserH264Encoder = nil
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
@@ -90,7 +104,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
         autoreleasepool {
             let orientation = videoOrientation(from: sampleBuffer)
-            if let browserServer, let browserEncoder {
+            if let browserServer, browserServer.hasH264Clients, let browserH264Encoder {
+                if orientation != lastOrientation {
+                    lastOrientation = orientation
+                    browserH264Encoder.requestKeyFrame()
+                }
+                browserH264Encoder.encode(sampleBuffer, orientation: orientation)
+            } else if let browserServer, browserServer.hasMJPEGClients, let browserEncoder {
                 guard browserServer.hasStreamingClients else { return }
                 lastOrientation = orientation
                 browserEncoder.encode(sampleBuffer, orientation: orientation)

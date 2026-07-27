@@ -7,6 +7,7 @@ final class H264Encoder {
         let data: Data
         let isKeyFrame: Bool
         let configuration: VideoConfiguration?
+        let timestampMicroseconds: Int64
     }
 
     var onFrame: ((EncodedFrame) -> Void)?
@@ -196,7 +197,24 @@ final class H264Encoder {
         if isKeyFrame, let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) {
             videoConfiguration = makeConfiguration(from: formatDescription)
         }
-        onFrame?(EncodedFrame(data: encoded, isKeyFrame: isKeyFrame, configuration: videoConfiguration))
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let timestampMicroseconds: Int64
+        if presentationTime.isValid {
+            timestampMicroseconds = max(
+                0,
+                Int64((CMTimeGetSeconds(presentationTime) * 1_000_000).rounded())
+            )
+        } else {
+            timestampMicroseconds = 0
+        }
+        onFrame?(
+            EncodedFrame(
+                data: encoded,
+                isKeyFrame: isKeyFrame,
+                configuration: videoConfiguration,
+                timestampMicroseconds: timestampMicroseconds
+            )
+        )
     }
 
     private func reportFailure(_ message: String) {
