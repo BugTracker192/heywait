@@ -47,7 +47,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-In Browser mode, the extension instead listens on TCP port `49373`, requires the random access key embedded in the generated URL, converts bounded ReplayKit samples to JPEG, and sends only the newest available frame to each browser. Native and Browser modes are mutually exclusive per broadcast, so browser JPEG work cannot reduce native H.264 throughput.
+In Browser mode, the extension instead listens on TCP port `49373`, requires the random access key embedded in the generated URL, converts bounded ReplayKit samples to JPEG, and sends only the newest available frame to each browser. Native and Browser modes are mutually exclusive per broadcast, so browser JPEG work cannot reduce native H.264 throughput. The browser viewer also exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
 
 The Sender app temporarily owns the same port while its Browser setup screen is foregrounded and serves a black waiting page. It releases the listener before the ReplayKit sheet launches. The page polls a health endpoint and reloads automatically as soon as the broadcast extension takes ownership. Sender also explicitly synchronizes App Group preferences before launch so the separate extension process cannot read the previous delivery mode.
 
@@ -116,6 +116,8 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 5. The waiting page automatically hands over to the live extension. If the link was not already open, open it now in Safari, Chrome, Firefox, or another browser. Tap the video for fullscreen where the browser supports it.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.
+
+Each Sender installation generates an independent 80-bit random access key. The link intentionally remains stable across broadcasts so a Home Screen shortcut keeps working; **Generate a new private link** rotates the key and invalidates the previous URL. One Sender supports up to four simultaneous browser viewers.
 
 ## Background behavior
 

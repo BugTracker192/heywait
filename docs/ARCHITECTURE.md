@@ -8,6 +8,8 @@ The sender app is a SwiftUI configuration surface. It stores the selected delive
 
 While Browser setup is foregrounded, Sender temporarily serves a black waiting page on the generated URL. It releases the listener when the app resigns active for the broadcast sheet. JavaScript on that already-loaded page retries the health endpoint until the extension binds the same port, then reloads into the live viewer.
 
+Both temporary and live servers expose the same neutral `Screen Share` web-app manifest and PNG icon. The manifest preserves the access key in its installed start URL. Keys are generated independently per Sender installation and remain stable until the user explicitly rotates the private link.
+
 ### Broadcast Upload Extension
 
 ReplayKit starts `SampleHandler` outside the sender app. In native mode, the handler:

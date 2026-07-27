@@ -265,6 +265,19 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(actual, expected)
     }
 
+    func testBrowserWebAppManifestKeepsPrivateStartURLAndNeutralBranding() throws {
+        let manifestData = BrowserWebApp.manifest(accessKey: "2345-6789-ABCD-EFGH")
+        let manifest = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: manifestData) as? [String: Any]
+        )
+
+        XCTAssertEqual(manifest["name"] as? String, "Screen Share")
+        XCTAssertEqual(manifest["short_name"] as? String, "Screen Share")
+        XCTAssertEqual(manifest["display"] as? String, "standalone")
+        XCTAssertEqual(manifest["start_url"] as? String, "/?k=23456789ABCDEFGH")
+        XCTAssertTrue(BrowserWebApp.iconPNG.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+    }
+
     func testRemoteVideoGeometryFollowsIntendedDisplayAspect() {
         XCTAssertEqual(
             ReceiverOrientationCoordinator.interfaceOrientations(

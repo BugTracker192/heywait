@@ -147,13 +147,26 @@ private final class BrowserWaitingClient {
             return
         }
 
-        if components.path == "/" {
+        switch components.path {
+        case "/":
             respond(
                 status: "200 OK",
                 contentType: "text/html; charset=utf-8",
                 body: waitingPage
             )
-        } else {
+        case "/manifest.webmanifest":
+            respond(
+                status: "200 OK",
+                contentType: "application/manifest+json",
+                data: BrowserWebApp.manifest(accessKey: accessKey)
+            )
+        case "/icon.png", "/apple-touch-icon.png":
+            respond(
+                status: "200 OK",
+                contentType: "image/png",
+                data: BrowserWebApp.iconPNG
+            )
+        default:
             respond(status: "503 Service Unavailable", body: "Broadcast is not ready")
         }
     }
@@ -165,7 +178,13 @@ private final class BrowserWaitingClient {
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+          <meta name="apple-mobile-web-app-capable" content="yes">
+          <meta name="apple-mobile-web-app-title" content="Screen Share">
+          <meta name="application-name" content="Screen Share">
+          <meta name="apple-mobile-web-app-status-bar-style" content="black">
           <meta name="theme-color" content="#000000">
+          <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon.png?k=\(accessKey)">
+          <link rel="manifest" href="/manifest.webmanifest?k=\(accessKey)">
           <title>Screen Share</title>
           <style>
             html,body{width:100%;height:100%;margin:0;background:#000;color:#fff;font:17px -apple-system,sans-serif}
@@ -196,7 +215,14 @@ private final class BrowserWaitingClient {
         contentType: String = "text/plain; charset=utf-8",
         body: String
     ) {
-        let data = Data(body.utf8)
+        respond(status: status, contentType: contentType, data: Data(body.utf8))
+    }
+
+    private func respond(
+        status: String,
+        contentType: String,
+        data: Data
+    ) {
         let headers = """
         HTTP/1.1 \(status)\r
         Content-Type: \(contentType)\r

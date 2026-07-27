@@ -255,6 +255,18 @@ private final class BrowserHTTPClient {
             sendHTML()
         case "/stream":
             startStream()
+        case "/manifest.webmanifest":
+            sendData(
+                BrowserWebApp.manifest(accessKey: accessKey),
+                status: "200 OK",
+                contentType: "application/manifest+json"
+            )
+        case "/icon.png", "/apple-touch-icon.png":
+            sendData(
+                BrowserWebApp.iconPNG,
+                status: "200 OK",
+                contentType: "image/png"
+            )
         case "/health":
             sendData(
                 Data(#"{"status":"ok"}"#.utf8),
@@ -274,7 +286,12 @@ private final class BrowserHTTPClient {
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
           <meta name="apple-mobile-web-app-capable" content="yes">
+          <meta name="apple-mobile-web-app-title" content="Screen Share">
+          <meta name="application-name" content="Screen Share">
+          <meta name="apple-mobile-web-app-status-bar-style" content="black">
           <meta name="theme-color" content="#000000">
+          <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon.png?k=\(accessKey)">
+          <link rel="manifest" href="/manifest.webmanifest?k=\(accessKey)">
           <title>Screen Share</title>
           <style>
             *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;background:#000;overflow:hidden}
