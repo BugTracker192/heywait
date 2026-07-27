@@ -172,6 +172,13 @@ struct SenderRootView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                Text(
+                    model.quality == .dataSaver
+                        ? "30 FPS target for weaker Wi-Fi."
+                        : "60 FPS target on supported sender hardware."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
     }

@@ -31,6 +31,7 @@ GitHub Actions proves that both app targets and unit tests compile under Xcode 2
 - Full-resolution sender capture starts without ReplayKit error `-5808` or an extension memory termination.
 - Home Screen, Settings, Safari, scrolling text, keyboard, and animations render.
 - Portrait → landscape-left → portrait → landscape-right does not stretch or retain the previous orientation.
+- The receiver window itself changes to the remote display aspect, including while the receiver phone remains physically still, with no portrait-canvas side bars around landscape games.
 - Dynamic resolution change produces a new SPS/PPS and keyframe.
 - Screen lock and unlock recover according to the tested jailbreak/ReplayKit version.
 - Protected/FairPlay surfaces are documented if black.
@@ -50,6 +51,7 @@ Measure on balanced quality for at least 20 minutes:
 
 - Glass-to-glass latency with a high-frame-rate timer.
 - Delivered FPS during scrolling.
+- Delivered FPS during a 60 FPS game; distinguish ReplayKit capture rate, encoded rate, and receiver display rate.
 - Sender/receiver thermal state and battery drain.
 - Memory use of the Broadcast Upload Extension; verify ReplayKit does not jetsam it.
 - Queue behavior under 5–10% packet loss or high Wi-Fi contention.

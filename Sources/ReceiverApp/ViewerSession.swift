@@ -86,6 +86,7 @@ final class ViewerSession: ObservableObject {
         frameCount = 0
         videoStatus = nil
         decoder.reset()
+        ReceiverOrientationCoordinator.shared.reset()
         server.start(identity: identity)
     }
 
@@ -93,6 +94,7 @@ final class ViewerSession: ObservableObject {
         switch packet.kind {
         case .videoConfiguration:
             guard let configuration = try? JSONDecoder().decode(VideoConfiguration.self, from: packet.payload) else { return }
+            ReceiverOrientationCoordinator.shared.update(configuration: configuration)
             decoder.configure(configuration)
             pictureInPicture.invalidatePlaybackState()
         case .videoFrame:
@@ -107,6 +109,7 @@ final class ViewerSession: ObservableObject {
                 | (UInt32(packet.payload[1]) << 16)
                 | (UInt32(packet.payload[2]) << 8)
                 | UInt32(packet.payload[3])
+            ReceiverOrientationCoordinator.shared.update(videoOrientation: value)
             decoder.updateOrientation(value)
         case .streamError:
             break

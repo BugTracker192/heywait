@@ -10,7 +10,7 @@ The repository has no runtime binary dependencies. XcodeGen creates the project 
 ## What is implemented
 
 - Full-display ReplayKit capture from the sender, including other apps and orientation changes.
-- Hardware H.264 encoding through VideoToolbox at 20 or 30 FPS, with quality-specific resolution bounds to stay within ReplayKit's extension memory budget.
+- Hardware H.264 encoding through VideoToolbox with 60 FPS targets for Balanced/Sharp and 30 FPS for Data Saver, with quality-specific resolution bounds to stay within ReplayKit's extension memory budget.
 - Hardware-backed low-delay display with `AVSampleBufferDisplayLayer`.
 - Bonjour discovery, automatic reconnect, TCP no-delay, keepalive, and bounded pre-encode backpressure that skips uncoded capture samples without breaking H.264 reference frames.
 - 16-character local pairing code and ChaCha20-Poly1305 authenticated encryption for every control and video payload.
@@ -18,7 +18,7 @@ The repository has no runtime binary dependencies. XcodeGen creates the project 
 - Session persistence across transient Wi-Fi loss and app reopening.
 - Picture in Picture for supported background viewing.
 - Normal iOS screen recording of the unprotected viewer surface.
-- Portrait and landscape handling.
+- Remote-driven portrait/landscape window rotation and correctly oriented video-layer rendering.
 - GitHub Actions tests, TrollStore entitlement signing, IPA packaging, checksums, artifacts, and tagged releases.
 
 System-protected or FairPlay video may be blank in a capture. iOS itself decides that behavior.
@@ -151,7 +151,7 @@ make build
 
 ## Current compatibility research
 
-This design was checked against current documentation on 2026-07-26:
+This design was checked against current documentation on 2026-07-27:
 
 - Apple lists Xcode 26 with Swift 6.2 and the iOS 26 SDK: [Xcode 26 release notes](https://developer.apple.com/documentation/Xcode-Release-Notes/xcode-26-release-notes).
 - GitHub's `macos-26` hosted image includes Xcode 26 and iOS 26 SDKs: [runner image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md).
@@ -165,6 +165,8 @@ This design was checked against current documentation on 2026-07-26:
 - Apple exposes `AVSampleBufferDisplayLayer.preventsCapture` to distinguish protected from recordable display layers; the viewer explicitly leaves protection off: [AVSampleBufferDisplayLayer](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer).
 - Bonjour requires Local Network privacy declarations and real-device testing: [TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
 - Apple recommends VideoToolbox real-time and low-latency encoder configuration for conferencing: [Encoding video for low-latency conferencing](https://developer.apple.com/documentation/videotoolbox/encoding-video-for-low-latency-conferencing).
+- Apple provides `UIWindowScene.requestGeometryUpdate` to request landscape/portrait scene geometry; the receiver uses the remote video's intended display aspect so it fills the matching screen orientation: [`requestGeometryUpdate`](https://developer.apple.com/documentation/uikit/uiwindowscene/requestgeometryupdate(_:errorhandler:)).
+- VideoToolbox's expected-frame-rate property is an encoder hint, not a guarantee; delivered FPS still depends on ReplayKit sample delivery, device hardware, thermals, and network capacity: [`kVTCompressionPropertyKey_ExpectedFrameRate`](https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_expectedframerate).
 - TrollStore currently documents support through iOS 16.6.1, the 16.7 RC build, and iOS 17.0: [TrollStore compatibility](https://github.com/opa334/TrollStore).
 - Dopamine documents iOS 15.0–16.5.1 support on arm64e and wider ranges on arm64: [Dopamine](https://github.com/opa334/Dopamine).
 - palera1n documents A8–A11 support on iOS 15 and later, with an iOS 16 passcode caveat on A11: [palera1n](https://github.com/palera1n/palera1n).

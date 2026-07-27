@@ -57,9 +57,9 @@ enum StreamQuality: String, CaseIterable, Codable {
 
     var framesPerSecond: Int32 {
         switch self {
-        case .balanced: return 30
-        case .sharp: return 30
-        case .dataSaver: return 20
+        case .balanced: return 60
+        case .sharp: return 60
+        case .dataSaver: return 30
         }
     }
 

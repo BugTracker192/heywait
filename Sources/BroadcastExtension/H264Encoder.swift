@@ -39,10 +39,20 @@ final class H264Encoder {
         guard let session else { return }
 
         let incomingPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let minimumDelta = CMTime(value: 1, timescale: quality.framesPerSecond)
+        let targetFrameDuration = CMTime(value: 1, timescale: quality.framesPerSecond)
+        // ReplayKit timestamps have small scheduling jitter. A strict 1 / FPS
+        // comparison can reject every other nominal 60 Hz sample when it lands
+        // a fraction early, so admit frames within ten percent of the target.
+        let minimumAcceptedDelta = CMTime(
+            value: 9,
+            timescale: quality.framesPerSecond * 10
+        )
         if lastAcceptedPresentationTime.isValid,
            incomingPTS.isValid,
-           CMTimeCompare(CMTimeSubtract(incomingPTS, lastAcceptedPresentationTime), minimumDelta) < 0 {
+           CMTimeCompare(
+               CMTimeSubtract(incomingPTS, lastAcceptedPresentationTime),
+               minimumAcceptedDelta
+           ) < 0 {
             return
         }
 
@@ -67,7 +77,7 @@ final class H264Encoder {
             session,
             imageBuffer: imageBuffer,
             presentationTimeStamp: presentationTime,
-            duration: minimumDelta,
+            duration: targetFrameDuration,
             frameProperties: properties,
             sourceFrameRefcon: nil,
             infoFlagsOut: &infoFlags
@@ -127,7 +137,7 @@ final class H264Encoder {
         set(created, kVTCompressionPropertyKey_MaxFrameDelayCount, NSNumber(value: 0))
         set(created, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_Baseline_AutoLevel)
         set(created, kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: quality.framesPerSecond))
-        set(created, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: AppConstants.keyFrameInterval))
+        set(created, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: quality.framesPerSecond))
         set(created, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: 1))
         let pixelTransferProperties: [CFString: Any] = [
             kVTPixelTransferPropertyKey_RealTime: true,

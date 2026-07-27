@@ -21,7 +21,7 @@ The extension remains the capture owner when the sender app is no longer frontmo
 
 ### Receiver app
 
-The receiver creates an `NWListener`, advertises a stable Bonjour service name, accepts one authenticated sender, and feeds AVCC H.264 access units to an `AVSampleBufferDisplayLayer`. A new connection replaces the old connection only after it has successfully decrypted and decoded a valid `hello` packet.
+The receiver creates an `NWListener`, advertises a stable Bonjour service name, accepts one authenticated sender, and feeds AVCC H.264 access units to an `AVSampleBufferDisplayLayer`. It derives the intended display aspect from the encoded dimensions plus ReplayKit orientation metadata and requests matching portrait or landscape `UIWindowScene` geometry. A new connection replaces the old connection only after it has successfully decrypted and decoded a valid `hello` packet.
 
 ## Wire format
 
@@ -54,6 +54,7 @@ The header exposes packet type, sequence, and ciphertext length to the local net
 ## Latency controls
 
 - VideoToolbox uses real-time mode, no B-frame reordering, maximum frame delay zero, a one-second keyframe interval, and H.264 Baseline.
+- Balanced and Sharp target 60 FPS; Data Saver targets 30 FPS. VideoToolbox treats the configured rate as a hint and actual capture/delivery can be lower.
 - TCP uses `noDelay` and keepalive.
 - At most two encoded video frames may be outstanding. ReplayKit capture samples are skipped before encoding while that limit is reached, so VideoToolbox never creates reference frames that the transport later discards.
 - Every encoded frame is delivered to the receiver in TCP order. The receiver never coalesces or discards H.264 access units because later delta frames may depend on them.

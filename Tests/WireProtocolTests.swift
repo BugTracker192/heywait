@@ -172,4 +172,45 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(dimensions.width, 750)
         XCTAssertEqual(dimensions.height, 1334)
     }
+
+    func testStreamQualityFrameRateTargets() {
+        XCTAssertEqual(StreamQuality.balanced.framesPerSecond, 60)
+        XCTAssertEqual(StreamQuality.sharp.framesPerSecond, 60)
+        XCTAssertEqual(StreamQuality.dataSaver.framesPerSecond, 30)
+    }
+
+    func testRemoteVideoGeometryFollowsIntendedDisplayAspect() {
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.interfaceOrientations(
+                encodedWidth: 664,
+                encodedHeight: 1_440,
+                videoOrientation: 1
+            ),
+            .portrait
+        )
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.interfaceOrientations(
+                encodedWidth: 1_440,
+                encodedHeight: 664,
+                videoOrientation: 3
+            ),
+            .landscape
+        )
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.interfaceOrientations(
+                encodedWidth: 664,
+                encodedHeight: 1_440,
+                videoOrientation: 6
+            ),
+            .landscape
+        )
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.interfaceOrientations(
+                encodedWidth: 1_440,
+                encodedHeight: 664,
+                videoOrientation: 8
+            ),
+            .portrait
+        )
+    }
 }
