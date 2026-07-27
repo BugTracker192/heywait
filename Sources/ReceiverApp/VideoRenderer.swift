@@ -278,11 +278,13 @@ final class H264DisplayDecoder {
         }
     }
 
-    func reset() {
+    func reset(preserveImage: Bool = false) {
         formatDescription = nil
         currentConfiguration = nil
         nextPresentationTime = .zero
-        renderer.flush()
+        if !preserveImage {
+            renderer.flush()
+        }
     }
 
     private func setSampleAttachments(on sampleBuffer: CMSampleBuffer, isKeyFrame: Bool) {

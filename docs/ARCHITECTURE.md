@@ -56,13 +56,14 @@ The header exposes packet type, sequence, and ciphertext length to the local net
 - VideoToolbox uses real-time mode, no B-frame reordering, maximum frame delay zero, a one-second keyframe interval, and H.264 Baseline.
 - Balanced and Sharp target 60 FPS; Data Saver targets 30 FPS. VideoToolbox treats the configured rate as a hint and actual capture/delivery can be lower.
 - TCP uses `noDelay` and keepalive.
-- At most two encoded video frames may be outstanding. ReplayKit capture samples are skipped before encoding while that limit is reached, so VideoToolbox never creates reference frames that the transport later discards.
+- Up to sixteen encoded video frames may be outstanding, covering a quarter-second completion-delay burst at the 60 FPS target without stalling capture. ReplayKit samples are skipped before encoding only when that bounded window is full.
+- Up to eight encrypted sends are submitted to Network.framework in one ordered pipeline. Completion callbacks release frame-window capacity; they no longer serialize every send.
 - Every encoded frame is delivered to the receiver in TCP order. The receiver never coalesces or discards H.264 access units because later delta frames may depend on them.
 - Control/configuration packets are not discarded.
 - The sender forces a keyframe after authentication, resume, size change, and orientation change.
 - The receiver marks every display sample `DisplayImmediately`.
 
-The strategy applies congestion control before encoding, preserving both temporal freshness and a complete decodable H.264 stream. Actual latency depends on device thermals, Wi-Fi contention, capture resolution, and certificate-signed build behavior.
+The strategy applies bounded congestion control before encoding, preserves a complete decodable H.264 stream, and absorbs short networking-stack completion bursts without turning them into visible freezes. Sustained congestion still causes pre-encode capture skipping instead of unbounded latency or extension memory growth.
 
 ## Recovery
 

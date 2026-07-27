@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 
 struct ReceiverRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var session = ViewerSession()
     @State private var controlsVisible = false
     @State private var copied = false
@@ -34,6 +35,18 @@ struct ReceiverRootView: View {
         .statusBar(hidden: true)
         .screenChromeHidden()
         .preferredColorScheme(.dark)
+        .onChange(of: scenePhase) { newPhase in
+            switch newPhase {
+            case .background:
+                session.enteredBackground()
+            case .active:
+                session.becameActive()
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
+        }
         .alert("Generate a new pairing code?", isPresented: $showRotateConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Generate", role: .destructive) {

@@ -106,11 +106,11 @@ On stock iOS 18–26, a normal app is suspended shortly after it enters the back
 This project uses Apple's supported live-video path:
 
 1. While a stream is active, tap the viewer once.
-2. Tap the Picture in Picture button once, or enable **Settings → General → Picture in Picture → Start PiP Automatically** and leave the app while the video is active.
+2. Tap the Picture in Picture button once before leaving the app.
 3. The same decoder and network session stay active in PiP.
 4. Reopen Screen Share; PiP closes and the existing full-screen renderer is immediately visible.
 
-PiP is a system-owned floating window while the viewer is minimized. Its controls cannot be hidden by a stock iOS app. If PiP is disabled by the user or unavailable, iOS may suspend the receiver; it will reconnect automatically without a prompt when reopened and keeps the last decoded frame visible during the reconnect.
+PiP is manual-only so returning to the Home Screen never creates an unexpected nested mirror. PiP is a system-owned floating window and its controls cannot be hidden by a stock iOS app. If the viewer leaves without starting PiP, Screen Share closes the live socket before suspension, retains the last rendered image, and reconnects automatically without a prompt when reopened.
 
 ## Screen recording
 
@@ -159,12 +159,14 @@ This design was checked against current documentation on 2026-07-27:
 - Apple's iOS ScreenCaptureKit sample requires iOS 27 and introduces the `screen-capture` background mode there: [Capturing screen content on iOS](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-on-ios).
 - Apple documents that an ordinary iOS app is normally suspended shortly after entering the background: [Extending background execution time](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time).
 - Apple supports `AVSampleBufferDisplayLayer` as a Picture in Picture content source and requires media background configuration: [Adopting Picture in Picture in a custom player](https://developer.apple.com/documentation/avkit/adopting-picture-in-picture-in-a-custom-player).
+- Apple documents that `canStartPictureInPictureAutomaticallyFromInline` starts PiP when an inline player enters the background; Screen Share deliberately leaves it disabled and requires an explicit PiP tap: [`canStartPictureInPictureAutomaticallyFromInline`](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/canstartpictureinpictureautomaticallyfrominline).
 - Core Media defines `DisplayImmediately` as a per-sample attachment; the receiver also supplies valid timing and sync/dependency metadata for every H.264 frame: [`kCMSampleAttachmentKey_DisplayImmediately`](https://developer.apple.com/documentation/coremedia/kcmsampleattachmentkey_displayimmediately).
 - The H.264 NAL length field may be 1, 2, or 4 bytes and must match the encoder's format description, so the sender transmits the actual value instead of making the receiver assume one: [`CMVideoFormatDescriptionCreateFromH264ParameterSets`](https://developer.apple.com/documentation/coremedia/cmvideoformatdescriptioncreatefromh264parametersets%28allocator%3Aparametersetcount%3Aparametersetpointers%3Aparametersetsizes%3Analunitheaderlength%3Aformatdescriptionout%3A%29).
 - A failed sample-buffer display layer cannot be reused; the receiver observes real decode readiness/errors and replaces the layer (and its PiP content source) when required: [`AVSampleBufferDisplayLayer.status`](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer/status).
 - Apple exposes `AVSampleBufferDisplayLayer.preventsCapture` to distinguish protected from recordable display layers; the viewer explicitly leaves protection off: [AVSampleBufferDisplayLayer](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer).
 - Bonjour requires Local Network privacy declarations and real-device testing: [TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
 - Apple recommends VideoToolbox real-time and low-latency encoder configuration for conferencing: [Encoding video for low-latency conferencing](https://developer.apple.com/documentation/videotoolbox/encoding-video-for-low-latency-conferencing).
+- Network.framework's `contentProcessed` completion reports when the networking stack has processed a send. The sender pipelines a bounded number of ordered sends instead of serializing the capture loop on each completion: [`NWConnection.send`](https://developer.apple.com/documentation/network/nwconnection/send(content:contentcontext:iscomplete:completion:)).
 - Apple provides `UIWindowScene.requestGeometryUpdate` to request landscape/portrait scene geometry; the receiver uses the remote video's intended display aspect so it fills the matching screen orientation: [`requestGeometryUpdate`](https://developer.apple.com/documentation/uikit/uiwindowscene/requestgeometryupdate(_:errorhandler:)).
 - VideoToolbox's expected-frame-rate property is an encoder hint, not a guarantee; delivered FPS still depends on ReplayKit sample delivery, device hardware, thermals, and network capacity: [`kVTCompressionPropertyKey_ExpectedFrameRate`](https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_expectedframerate).
 - TrollStore currently documents support through iOS 16.6.1, the 16.7 RC build, and iOS 17.0: [TrollStore compatibility](https://github.com/opa334/TrollStore).

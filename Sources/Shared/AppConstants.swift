@@ -8,6 +8,8 @@ enum AppConstants {
     static let broadcastBundleIdentifier = "dev.screenshare.sender.broadcast"
     static let maximumPacketBytes = 8 * 1024 * 1024
     static let preferredFramesPerSecond = 60
-    static let maximumOutstandingVideoFrames = 2
+    static let maximumOutstandingVideoFrames = 16
+    static let maximumInFlightNetworkSends = 8
+    static let allowsAutomaticPictureInPicture = false
 }
 

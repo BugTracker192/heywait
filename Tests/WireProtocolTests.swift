@@ -179,6 +179,22 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(StreamQuality.dataSaver.framesPerSecond, 30)
     }
 
+    func testTransportWindowCoversQuarterSecondAtTargetFrameRate() {
+        let quarterSecondOfFrames = Int(AppConstants.preferredFramesPerSecond / 4)
+        XCTAssertGreaterThanOrEqual(
+            AppConstants.maximumOutstandingVideoFrames,
+            quarterSecondOfFrames
+        )
+        XCTAssertGreaterThan(
+            AppConstants.maximumOutstandingVideoFrames,
+            AppConstants.maximumInFlightNetworkSends
+        )
+    }
+
+    func testPictureInPictureRequiresExplicitUserAction() {
+        XCTAssertFalse(AppConstants.allowsAutomaticPictureInPicture)
+    }
+
     func testRemoteVideoGeometryFollowsIntendedDisplayAspect() {
         XCTAssertEqual(
             ReceiverOrientationCoordinator.interfaceOrientations(

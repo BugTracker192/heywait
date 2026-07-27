@@ -18,7 +18,7 @@ final class SenderTransport {
     private var parser = PacketStreamParser()
     private var heartbeat: DispatchSourceTimer?
     private var pending: [PendingPacket] = []
-    private var sending = false
+    private var inFlightSends = 0
     private var sequence: UInt64 = 0
     private var generation: UInt64 = 0
     private var authenticated = false
@@ -66,7 +66,7 @@ final class SenderTransport {
             self.heartbeat?.cancel()
             self.heartbeat = nil
             self.pending.removeAll()
-            self.sending = false
+            self.inFlightSends = 0
             self.setReady(false)
             self.resetOutstandingVideoFrames()
         }
@@ -123,7 +123,7 @@ final class SenderTransport {
         connection = nil
         parser = PacketStreamParser()
         pending.removeAll()
-        sending = false
+        inFlightSends = 0
         resetOutstandingVideoFrames()
         authenticated = false
         setReady(false)
@@ -258,37 +258,46 @@ final class SenderTransport {
     }
 
     private func pump() {
-        guard authenticated, !sending, let connection, !pending.isEmpty else { return }
-        sending = true
-        let next = pending.removeFirst()
-        sequence &+= 1
+        guard authenticated, let connection, !pending.isEmpty else { return }
 
-        guard let data = try? codec.encode(
-            kind: next.kind,
-            flags: next.flags,
-            sequence: sequence,
-            payload: next.payload
-        ) else {
-            if next.isVideoFrame {
-                adjustOutstandingVideoFrames(by: -1)
+        connection.batch {
+            while inFlightSends < AppConstants.maximumInFlightNetworkSends,
+                  !pending.isEmpty {
+                let next = pending.removeFirst()
+                sequence &+= 1
+
+                guard let data = try? codec.encode(
+                    kind: next.kind,
+                    flags: next.flags,
+                    sequence: sequence,
+                    payload: next.payload
+                ) else {
+                    if next.isVideoFrame {
+                        adjustOutstandingVideoFrames(by: -1)
+                    }
+                    continue
+                }
+
+                inFlightSends += 1
+                connection.send(
+                    content: data,
+                    completion: .contentProcessed { [weak self, weak connection] error in
+                        guard let self,
+                              let connection,
+                              connection === self.connection else { return }
+                        if next.isVideoFrame {
+                            self.adjustOutstandingVideoFrames(by: -1)
+                        }
+                        self.inFlightSends = max(0, self.inFlightSends - 1)
+                        if error == nil {
+                            self.pump()
+                        } else {
+                            self.restart(generation: self.generation)
+                        }
+                    }
+                )
             }
-            sending = false
-            pump()
-            return
         }
-
-        connection.send(content: data, completion: .contentProcessed { [weak self, weak connection] error in
-            guard let self, let connection, connection === self.connection else { return }
-            if next.isVideoFrame {
-                self.adjustOutstandingVideoFrames(by: -1)
-            }
-            self.sending = false
-            if error == nil {
-                self.pump()
-            } else {
-                self.restart(generation: self.generation)
-            }
-        })
     }
 
     private func restart(generation: UInt64) {
@@ -300,7 +309,7 @@ final class SenderTransport {
         heartbeat = nil
         authenticated = false
         pending.removeAll()
-        sending = false
+        inFlightSends = 0
         resetOutstandingVideoFrames()
         let wasReady = isReady
         setReady(false)

@@ -56,14 +56,15 @@ Measure on balanced quality for at least 20 minutes:
 - Memory use of the Broadcast Upload Extension; verify ReplayKit does not jetsam it.
 - Queue behavior under 5–10% packet loss or high Wi-Fi contention.
 
-If the extension is terminated under memory pressure, lower the sharp preset bitrate or use data-saver mode. Do not increase the outstanding-frame backpressure limit; that increases latency and extension memory use.
+If the extension is terminated under memory pressure, lower the sharp preset bitrate or use data-saver mode. Keep the outstanding-frame and in-flight-send limits bounded; removing them creates unbounded latency and extension memory use.
 
 ## Viewer UX and recording
 
 - No app watermark, banner, spinner, or control remains after 2.5 seconds.
 - Status bar/system chrome is hidden while foreground viewing.
 - A tap reveals PiP and status controls.
-- PiP starts from the user control and automatic PiP follows the device setting.
+- PiP starts only from the user control; leaving without tapping PiP does not create a floating nested mirror.
+- Reopening after a non-PiP background transition retains the last image and reconnects without a prompt.
 - Reopening the receiver returns to the same renderer without a startup animation.
 - Control Center screen recording records normal mirrored content and orientation changes.
 - Document the iOS recording indicator and any protected black surfaces.

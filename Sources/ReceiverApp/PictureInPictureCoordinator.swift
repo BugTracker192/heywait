@@ -72,7 +72,8 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
         )
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.canStartPictureInPictureAutomaticallyFromInline =
+            AppConstants.allowsAutomaticPictureInPicture
         controller.requiresLinearPlayback = true
         self.controller = controller
 

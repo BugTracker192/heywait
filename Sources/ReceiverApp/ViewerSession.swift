@@ -15,6 +15,7 @@ final class ViewerSession: ObservableObject {
     private let server = ReceiverServer()
     private let decoder: H264DisplayDecoder
     private var cancellables: Set<AnyCancellable> = []
+    private var pausedForBackground = false
 
     init() {
         identity = ReceiverIdentityStore.shared.load()
@@ -45,10 +46,11 @@ final class ViewerSession: ObservableObject {
         server.onStateChange = { [weak self] state in
             guard let self else { return }
             if case .connected = state {
-                self.decoder.reset()
+                self.decoder.reset(preserveImage: self.hasPicture)
                 self.videoStatus = nil
-                self.hasPicture = false
-                self.frameCount = 0
+                if !self.hasPicture {
+                    self.frameCount = 0
+                }
             }
             self.serverState = state
         }
@@ -87,6 +89,18 @@ final class ViewerSession: ObservableObject {
         videoStatus = nil
         decoder.reset()
         ReceiverOrientationCoordinator.shared.reset()
+        server.start(identity: identity)
+    }
+
+    func enteredBackground() {
+        guard !pictureInPicture.isActive, !pausedForBackground else { return }
+        pausedForBackground = true
+        server.stop()
+    }
+
+    func becameActive() {
+        guard pausedForBackground else { return }
+        pausedForBackground = false
         server.start(identity: identity)
     }
 
