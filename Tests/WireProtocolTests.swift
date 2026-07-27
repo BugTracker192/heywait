@@ -278,6 +278,20 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertTrue(BrowserWebApp.iconPNG.starts(with: [0x89, 0x50, 0x4E, 0x47]))
     }
 
+    func testBrowserHTTPHeadersEndWithCompleteCRLFDelimiter() {
+        let data = BrowserHTTPWire.headerBlock([
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/plain",
+            "Content-Length: 2"
+        ])
+
+        XCTAssertEqual(
+            String(decoding: data, as: UTF8.self),
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n"
+        )
+        XCTAssertEqual(Data(data.suffix(4)), Data([13, 10, 13, 10]))
+    }
+
     func testRemoteVideoGeometryFollowsIntendedDisplayAspect() {
         XCTAssertEqual(
             ReceiverOrientationCoordinator.interfaceOrientations(

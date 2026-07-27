@@ -223,17 +223,15 @@ private final class BrowserWaitingClient {
         contentType: String,
         data: Data
     ) {
-        let headers = """
-        HTTP/1.1 \(status)\r
-        Content-Type: \(contentType)\r
-        Content-Length: \(data.count)\r
-        Cache-Control: no-store\r
-        Referrer-Policy: no-referrer\r
-        X-Content-Type-Options: nosniff\r
-        Connection: close\r
-        \r
-        """
-        var response = Data(headers.utf8)
+        var response = BrowserHTTPWire.headerBlock([
+            "HTTP/1.1 \(status)",
+            "Content-Type: \(contentType)",
+            "Content-Length: \(data.count)",
+            "Cache-Control: no-store",
+            "Referrer-Policy: no-referrer",
+            "X-Content-Type-Options: nosniff",
+            "Connection: close"
+        ])
         response.append(data)
         connection.send(content: response, completion: .contentProcessed { [weak self] _ in
             self?.stop()

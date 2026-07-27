@@ -184,15 +184,12 @@ private final class BrowserHTTPClient {
         guard isStreaming, !sendPending, !stopped else { return }
         sendPending = true
 
-        var part = Data(
-            """
-            --screen-share\r
-            Content-Type: image/jpeg\r
-            Content-Length: \(jpeg.count)\r
-            Cache-Control: no-store\r
-            \r
-            """.utf8
-        )
+        var part = BrowserHTTPWire.headerBlock([
+            "--screen-share",
+            "Content-Type: image/jpeg",
+            "Content-Length: \(jpeg.count)",
+            "Cache-Control: no-store"
+        ])
         part.append(jpeg)
         part.append(Data("\r\n".utf8))
         connection.send(content: part, completion: .contentProcessed { [weak self] error in
@@ -319,17 +316,16 @@ private final class BrowserHTTPClient {
     }
 
     private func startStream() {
-        let headers = """
-        HTTP/1.1 200 OK\r
-        Content-Type: multipart/x-mixed-replace; boundary=screen-share\r
-        Cache-Control: no-store, no-cache, must-revalidate\r
-        Pragma: no-cache\r
-        Referrer-Policy: no-referrer\r
-        X-Content-Type-Options: nosniff\r
-        Connection: keep-alive\r
-        \r
-        """
-        connection.send(content: Data(headers.utf8), completion: .contentProcessed { [weak self] error in
+        let headers = BrowserHTTPWire.headerBlock([
+            "HTTP/1.1 200 OK",
+            "Content-Type: multipart/x-mixed-replace; boundary=screen-share",
+            "Cache-Control: no-store, no-cache, must-revalidate",
+            "Pragma: no-cache",
+            "Referrer-Policy: no-referrer",
+            "X-Content-Type-Options: nosniff",
+            "Connection: keep-alive"
+        ])
+        connection.send(content: headers, completion: .contentProcessed { [weak self] error in
             guard let self else { return }
             if error != nil {
                 self.stop()
@@ -349,17 +345,15 @@ private final class BrowserHTTPClient {
     }
 
     private func sendData(_ data: Data, status: String, contentType: String) {
-        let headers = """
-        HTTP/1.1 \(status)\r
-        Content-Type: \(contentType)\r
-        Content-Length: \(data.count)\r
-        Cache-Control: no-store\r
-        Referrer-Policy: no-referrer\r
-        X-Content-Type-Options: nosniff\r
-        Connection: close\r
-        \r
-        """
-        var response = Data(headers.utf8)
+        var response = BrowserHTTPWire.headerBlock([
+            "HTTP/1.1 \(status)",
+            "Content-Type: \(contentType)",
+            "Content-Length: \(data.count)",
+            "Cache-Control: no-store",
+            "Referrer-Policy: no-referrer",
+            "X-Content-Type-Options: nosniff",
+            "Connection: close"
+        ])
         response.append(data)
         connection.send(content: response, completion: .contentProcessed { [weak self] _ in
             self?.stop()

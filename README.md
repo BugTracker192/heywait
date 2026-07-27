@@ -51,6 +51,8 @@ In Browser mode, the extension instead listens on TCP port `49373`, requires the
 
 The Sender app temporarily owns the same port while its Browser setup screen is foregrounded and serves a black waiting page. It releases the listener before the ReplayKit sheet launches. The page polls a health endpoint and reloads automatically as soon as the broadcast extension takes ownership. Sender also explicitly synchronizes App Group preferences before launch so the separate extension process cannot read the previous delivery mode.
 
+Browser responses and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for packet framing, encryption, reconnection, and latency details.
 
 ## Install
