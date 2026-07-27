@@ -42,7 +42,7 @@ struct ReceiverRootView: View {
             case .active:
                 session.becameActive()
             case .inactive:
-                break
+                session.willResignActive()
             @unknown default:
                 break
             }

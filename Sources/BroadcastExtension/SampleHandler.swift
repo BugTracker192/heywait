@@ -5,6 +5,8 @@ import ReplayKit
 final class SampleHandler: RPBroadcastSampleHandler {
     private var transport: SenderTransport?
     private var encoder: H264Encoder?
+    private var browserServer: BrowserStreamServer?
+    private var browserEncoder: BrowserJPEGEncoder?
     private var isPaused = false
     private var lastOrientation: UInt32 = 1
     private var isFinishing = false
@@ -16,30 +18,47 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 NSError(
                     domain: "dev.screenshare.broadcast",
                     code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Open Screen Share Sender and pair a receiver first."]
+                    userInfo: [NSLocalizedDescriptionKey: "Open Screen Share Sender and save a viewing method first."]
                 )
             )
             return
         }
 
-        let encoder = H264Encoder(quality: configuration.quality)
-        let transport = SenderTransport(configuration: configuration)
-        self.encoder = encoder
-        self.transport = transport
+        switch configuration.deliveryMode {
+        case .nativeReceiver:
+            let encoder = H264Encoder(quality: configuration.quality)
+            let transport = SenderTransport(configuration: configuration)
+            self.encoder = encoder
+            self.transport = transport
 
-        encoder.onFrame = { [weak transport] frame in
-            if let configuration = frame.configuration {
-                transport?.sendVideoConfiguration(configuration)
+            encoder.onFrame = { [weak transport] frame in
+                if let configuration = frame.configuration {
+                    transport?.sendVideoConfiguration(configuration)
+                }
+                transport?.sendVideoFrame(frame.data, isKeyFrame: frame.isKeyFrame)
             }
-            transport?.sendVideoFrame(frame.data, isKeyFrame: frame.isKeyFrame)
+            encoder.onFailure = { [weak self] message in
+                self?.stopWithError(message)
+            }
+            transport.onReady = { [weak encoder] in
+                encoder?.requestKeyFrame()
+            }
+            transport.start()
+
+        case .browser:
+            let server = BrowserStreamServer(accessKey: configuration.browserAccessKey)
+            let encoder = BrowserJPEGEncoder(quality: configuration.quality)
+            self.browserServer = server
+            self.browserEncoder = encoder
+
+            encoder.onFrame = { [weak server] jpeg in
+                server?.publish(jpeg: jpeg)
+            }
+            server.onFailure = { [weak self] message in
+                self?.stopWithError(message)
+            }
+            server.start()
         }
-        encoder.onFailure = { [weak self] message in
-            self?.stopWithError(message)
-        }
-        transport.onReady = { [weak encoder] in
-            encoder?.requestKeyFrame()
-        }
-        transport.start()
     }
 
     override func broadcastPaused() {
@@ -55,26 +74,34 @@ final class SampleHandler: RPBroadcastSampleHandler {
         isFinishing = true
         transport?.stop()
         encoder?.invalidate()
+        browserServer?.stop()
         transport = nil
         encoder = nil
+        browserServer = nil
+        browserEncoder = nil
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
         guard !isPaused,
               !isFinishing,
-              sampleBufferType == .video,
-              transport?.canEncodeNextFrame == true else {
+              sampleBufferType == .video else {
             return
         }
 
         autoreleasepool {
             let orientation = videoOrientation(from: sampleBuffer)
-            if orientation != lastOrientation {
+            if let browserServer, let browserEncoder {
+                guard browserServer.hasStreamingClients else { return }
                 lastOrientation = orientation
-                transport?.sendOrientation(orientation)
-                encoder?.requestKeyFrame()
+                browserEncoder.encode(sampleBuffer, orientation: orientation)
+            } else if transport?.canEncodeNextFrame == true {
+                if orientation != lastOrientation {
+                    lastOrientation = orientation
+                    transport?.sendOrientation(orientation)
+                    encoder?.requestKeyFrame()
+                }
+                encoder?.encode(sampleBuffer, orientation: orientation)
             }
-            encoder?.encode(sampleBuffer, orientation: orientation)
         }
     }
 

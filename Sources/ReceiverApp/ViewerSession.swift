@@ -16,6 +16,8 @@ final class ViewerSession: ObservableObject {
     private let decoder: H264DisplayDecoder
     private var cancellables: Set<AnyCancellable> = []
     private var pausedForBackground = false
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var backgroundStopWorkItem: DispatchWorkItem?
 
     init() {
         identity = ReceiverIdentityStore.shared.load()
@@ -92,16 +94,68 @@ final class ViewerSession: ObservableObject {
         server.start(identity: identity)
     }
 
+    func willResignActive() {
+        guard !pictureInPicture.isUserInitiated else { return }
+        pictureInPicture.suppressAutomaticPictureInPicture()
+        beginBackgroundGraceIfNeeded()
+    }
+
     func enteredBackground() {
-        guard !pictureInPicture.isActive, !pausedForBackground else { return }
-        pausedForBackground = true
-        server.stop()
+        if pictureInPicture.isUserInitiated, pictureInPicture.isActive {
+            cancelBackgroundGrace()
+            return
+        }
+
+        pictureInPicture.suppressAutomaticPictureInPicture()
+        beginBackgroundGraceIfNeeded()
+        backgroundStopWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.pauseAfterBackgroundGrace()
+        }
+        backgroundStopWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + AppConstants.receiverBackgroundGraceSeconds,
+            execute: workItem
+        )
     }
 
     func becameActive() {
+        cancelBackgroundGrace()
         guard pausedForBackground else { return }
         pausedForBackground = false
         server.start(identity: identity)
+    }
+
+    private func beginBackgroundGraceIfNeeded() {
+        guard backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(
+            withName: "Keep screen-share session warm"
+        ) { [weak self] in
+            self?.pauseAfterBackgroundGrace()
+        }
+    }
+
+    private func pauseAfterBackgroundGrace() {
+        backgroundStopWorkItem?.cancel()
+        backgroundStopWorkItem = nil
+        if !pausedForBackground {
+            pausedForBackground = true
+            server.stop()
+        }
+        endBackgroundTaskIfNeeded()
+    }
+
+    private func cancelBackgroundGrace() {
+        backgroundStopWorkItem?.cancel()
+        backgroundStopWorkItem = nil
+        endBackgroundTaskIfNeeded()
+    }
+
+    private func endBackgroundTaskIfNeeded() {
+        guard backgroundTaskID != .invalid else { return }
+        let identifier = backgroundTaskID
+        backgroundTaskID = .invalid
+        UIApplication.shared.endBackgroundTask(identifier)
     }
 
     private func handle(_ packet: WirePacket) {
@@ -133,6 +187,10 @@ final class ViewerSession: ObservableObject {
     }
 
     deinit {
+        backgroundStopWorkItem?.cancel()
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        }
         server.stop()
         UIApplication.shared.isIdleTimerDisabled = false
     }

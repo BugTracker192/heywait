@@ -1,22 +1,29 @@
 import Combine
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import ReplayKit
 import SwiftUI
 import UIKit
 
 final class SenderViewModel: ObservableObject {
+    @Published var deliveryMode: DeliveryMode
     @Published var selectedServiceName: String
     @Published var pairingCode: String
     @Published var quality: StreamQuality
-    @Published private(set) var didSave = false
+    @Published var browserAccessKey: String
+    @Published private(set) var didSave: Bool
 
     let discovery = ReceiverDiscovery()
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
         let saved = SenderConfigurationStore.shared.load()
+        deliveryMode = saved.deliveryMode
         selectedServiceName = saved.receiverServiceName
         pairingCode = PairingSecret.format(saved.pairingCode)
         quality = saved.quality
+        browserAccessKey = saved.browserAccessKey
+        didSave = saved.isReady
 
         discovery.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -25,22 +32,46 @@ final class SenderViewModel: ObservableObject {
 
     var configuration: SenderConfiguration {
         SenderConfiguration(
+            deliveryMode: deliveryMode,
             receiverServiceName: selectedServiceName,
             pairingCode: pairingCode,
-            quality: quality
+            quality: quality,
+            browserAccessKey: browserAccessKey
         )
     }
 
-    var isReady: Bool { configuration.isReady }
+    var browserURL: URL? {
+        LocalBrowserLink.currentURL(accessKey: browserAccessKey)
+    }
+
+    var isReady: Bool {
+        configuration.isReady && (deliveryMode != .browser || browserURL != nil)
+    }
 
     func select(_ receiver: DiscoveredReceiver) {
         selectedServiceName = receiver.name
         didSave = false
     }
 
+    func markDirty() {
+        let saved = SenderConfigurationStore.shared.load()
+        didSave =
+            deliveryMode == saved.deliveryMode
+            && selectedServiceName == saved.receiverServiceName
+            && PairingSecret.normalize(pairingCode) == PairingSecret.normalize(saved.pairingCode)
+            && quality == saved.quality
+            && PairingSecret.normalize(browserAccessKey) == PairingSecret.normalize(saved.browserAccessKey)
+    }
+
+    func regenerateBrowserLink() {
+        browserAccessKey = PairingSecret.normalize(PairingSecret.generate())
+        didSave = false
+    }
+
     func save() {
         guard isReady else { return }
         pairingCode = PairingSecret.format(pairingCode)
+        browserAccessKey = PairingSecret.normalize(browserAccessKey)
         SenderConfigurationStore.shared.save(configuration)
         didSave = true
     }
@@ -62,8 +93,13 @@ struct SenderRootView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         header
-                        receiverCard
-                        pairingCard
+                        modeCard
+                        if model.deliveryMode == .nativeReceiver {
+                            receiverCard
+                            pairingCard
+                        } else {
+                            browserCard
+                        }
                         qualityCard
                         startCard
                         privacyNote
@@ -75,8 +111,22 @@ struct SenderRootView: View {
         }
         .navigationViewStyle(.stack)
         .preferredColorScheme(.dark)
-        .onAppear { model.discovery.start() }
+        .onAppear {
+            if model.deliveryMode == .nativeReceiver {
+                model.discovery.start()
+            }
+        }
         .onDisappear { model.discovery.stop() }
+        .onChange(of: model.deliveryMode) { mode in
+            model.markDirty()
+            if mode == .nativeReceiver {
+                model.discovery.start()
+            } else {
+                model.discovery.stop()
+            }
+        }
+        .onChange(of: model.pairingCode) { _ in model.markDirty() }
+        .onChange(of: model.quality) { _ in model.markDirty() }
     }
 
     private var header: some View {
@@ -92,6 +142,28 @@ struct SenderRootView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 14)
+    }
+
+    private var modeCard: some View {
+        card {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Viewing method", systemImage: "rectangle.connected.to.line.below")
+                    .font(.headline)
+                Picker("Viewing method", selection: $model.deliveryMode) {
+                    ForEach(DeliveryMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(
+                    model.deliveryMode == .nativeReceiver
+                        ? "Lowest latency and highest frame rate."
+                        : "No receiver app required. Open a private local link in a browser."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var receiverCard: some View {
@@ -161,6 +233,60 @@ struct SenderRootView: View {
         }
     }
 
+    private var browserCard: some View {
+        card {
+            VStack(alignment: .leading, spacing: 14) {
+                Label("Browser link", systemImage: "qrcode")
+                    .font(.headline)
+
+                if let url = model.browserURL {
+                    HStack(alignment: .top, spacing: 16) {
+                        if let image = BrowserQRCode.image(for: url.absoluteString) {
+                            Image(uiImage: image)
+                                .interpolation(.none)
+                                .resizable()
+                                .frame(width: 136, height: 136)
+                                .padding(8)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(url.absoluteString)
+                                .font(.caption2.monospaced())
+                                .textSelection(.enabled)
+                            Button {
+                                UIPasteboard.general.url = url
+                            } label: {
+                                Label("Copy link", systemImage: "doc.on.doc")
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(.cyan)
+                        }
+                    }
+
+                    Button {
+                        model.regenerateBrowserLink()
+                    } label: {
+                        Label("Generate a new private link", systemImage: "arrow.clockwise")
+                    }
+                    .font(.caption)
+
+                    Text(
+                        "Save this mode, start sharing, then scan or open the link on a device connected to the same Wi-Fi. Tap the video once for browser fullscreen."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Label(
+                        "Connect the sender to Wi-Fi to create its local browser link.",
+                        systemImage: "wifi.exclamationmark"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private var qualityCard: some View {
         card {
             VStack(alignment: .leading, spacing: 12) {
@@ -173,9 +299,13 @@ struct SenderRootView: View {
                 }
                 .pickerStyle(.segmented)
                 Text(
-                    model.quality == .dataSaver
-                        ? "30 FPS target for weaker Wi-Fi."
-                        : "60 FPS target on supported sender hardware."
+                    model.deliveryMode == .browser
+                        ? "\(model.quality.browserFramesPerSecond) FPS browser target; native mode is faster."
+                        : (
+                            model.quality == .dataSaver
+                                ? "30 FPS target for weaker Wi-Fi."
+                                : "60 FPS target on supported sender hardware."
+                        )
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -189,7 +319,12 @@ struct SenderRootView: View {
                 Button {
                     model.save()
                 } label: {
-                    Label(model.didSave ? "Receiver saved" : "Save receiver", systemImage: model.didSave ? "checkmark" : "link")
+                    Label(
+                        model.didSave
+                            ? (model.deliveryMode == .browser ? "Browser link saved" : "Receiver saved")
+                            : (model.deliveryMode == .browser ? "Save browser mode" : "Save receiver"),
+                        systemImage: model.didSave ? "checkmark" : "link"
+                    )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                 }
@@ -199,7 +334,7 @@ struct SenderRootView: View {
 
                 Divider()
 
-                let broadcastEnabled = model.didSave || SenderConfigurationStore.shared.load().isReady
+                let broadcastEnabled = model.didSave && model.isReady
                 ZStack {
                     HStack(spacing: 16) {
                         ZStack {
@@ -217,7 +352,11 @@ struct SenderRootView: View {
                             Text(
                                 broadcastEnabled
                                     ? "Tap anywhere here, then confirm once in the iOS sheet."
-                                    : "Choose and save a receiver to enable broadcasting."
+                                    : (
+                                        model.deliveryMode == .browser
+                                            ? "Save the browser link to enable broadcasting."
+                                            : "Choose and save a receiver to enable broadcasting."
+                                    )
                             )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -256,6 +395,22 @@ struct SenderRootView: View {
 
     private func displayName(_ serviceName: String) -> String {
         serviceName.replacingOccurrences(of: "ScreenShare-", with: "Receiver ")
+    }
+}
+
+private enum BrowserQRCode {
+    private static let context = CIContext()
+
+    static func image(for text: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(
+            by: CGAffineTransform(scaleX: 10, y: 10)
+        ), let cgImage = context.createCGImage(output, from: output.extent) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 

@@ -177,6 +177,9 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(StreamQuality.balanced.framesPerSecond, 60)
         XCTAssertEqual(StreamQuality.sharp.framesPerSecond, 60)
         XCTAssertEqual(StreamQuality.dataSaver.framesPerSecond, 30)
+        XCTAssertEqual(StreamQuality.balanced.browserFramesPerSecond, 24)
+        XCTAssertEqual(StreamQuality.sharp.browserFramesPerSecond, 30)
+        XCTAssertEqual(StreamQuality.dataSaver.browserFramesPerSecond, 15)
     }
 
     func testTransportWindowCoversQuarterSecondAtTargetFrameRate() {
@@ -193,6 +196,48 @@ final class WireProtocolTests: XCTestCase {
 
     func testPictureInPictureRequiresExplicitUserAction() {
         XCTAssertFalse(AppConstants.allowsAutomaticPictureInPicture)
+    }
+
+    func testReceiverBackgroundGraceIsBoundedToOneMinute() {
+        XCTAssertEqual(AppConstants.receiverBackgroundGraceSeconds, 60)
+    }
+
+    func testNativeAndBrowserDestinationReadinessAreIndependent() {
+        let native = SenderConfiguration(
+            deliveryMode: .nativeReceiver,
+            receiverServiceName: "ScreenShare-12345678",
+            pairingCode: "2345-6789-ABCD-EFGH",
+            quality: .balanced,
+            browserAccessKey: ""
+        )
+        let browser = SenderConfiguration(
+            deliveryMode: .browser,
+            receiverServiceName: "",
+            pairingCode: "",
+            quality: .balanced,
+            browserAccessKey: "2345-6789-ABCD-EFGH"
+        )
+
+        XCTAssertTrue(native.isReady)
+        XCTAssertTrue(browser.isReady)
+    }
+
+    func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
+        let url = LocalBrowserLink.url(
+            host: "192.168.1.23",
+            accessKey: "2345-6789-ABCD-EFGH"
+        )
+
+        XCTAssertEqual(url?.scheme, "http")
+        XCTAssertEqual(url?.host, "192.168.1.23")
+        XCTAssertEqual(url?.port, Int(AppConstants.browserViewerPort))
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(url), resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "k" })?
+                .value,
+            "23456789ABCDEFGH"
+        )
     }
 
     func testRemoteVideoGeometryFollowsIntendedDisplayAspect() {

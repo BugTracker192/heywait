@@ -1,6 +1,18 @@
 import CoreMedia
 import Foundation
 
+enum DeliveryMode: String, CaseIterable, Codable {
+    case nativeReceiver
+    case browser
+
+    var title: String {
+        switch self {
+        case .nativeReceiver: return "Receiver App"
+        case .browser: return "Browser"
+        }
+    }
+}
+
 struct HelloPayload: Codable, Equatable {
     let protocolVersion: Int
     let sessionID: UUID
@@ -60,6 +72,30 @@ enum StreamQuality: String, CaseIterable, Codable {
         case .balanced: return 60
         case .sharp: return 60
         case .dataSaver: return 30
+        }
+    }
+
+    var browserFramesPerSecond: Int32 {
+        switch self {
+        case .balanced: return 24
+        case .sharp: return 30
+        case .dataSaver: return 15
+        }
+    }
+
+    var browserMaximumDimension: CGFloat {
+        switch self {
+        case .balanced: return 1_280
+        case .sharp: return 1_600
+        case .dataSaver: return 960
+        }
+    }
+
+    var browserJPEGQuality: CGFloat {
+        switch self {
+        case .balanced: return 0.68
+        case .sharp: return 0.78
+        case .dataSaver: return 0.55
         }
     }
 

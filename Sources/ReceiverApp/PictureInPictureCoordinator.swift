@@ -9,44 +9,58 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
     @Published private(set) var isPossible = false
     @Published private(set) var isActive = false
 
+    private var displayLayer: AVSampleBufferDisplayLayer
     private var controller: AVPictureInPictureController?
     private var possibleObservation: NSKeyValueObservation?
     private var activeObservation: NSKeyValueObservation?
     private var foregroundObserver: NSObjectProtocol?
+    private var manualStartPending = false
+    private(set) var isUserInitiated = false
 
     init(displayLayer: AVSampleBufferDisplayLayer) {
+        self.displayLayer = displayLayer
         super.init()
-        configureAudioSession()
-        configureController(displayLayer: displayLayer)
+        isPossible = AVPictureInPictureController.isPictureInPictureSupported()
         foregroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            if self?.controller?.isPictureInPictureActive == true {
-                self?.controller?.stopPictureInPicture()
-            }
+            self?.stopForForeground()
         }
     }
 
     func updateDisplayLayer(_ displayLayer: AVSampleBufferDisplayLayer) {
+        isUserInitiated = false
+        manualStartPending = false
         controller?.stopPictureInPicture()
-        possibleObservation?.invalidate()
-        possibleObservation = nil
-        activeObservation?.invalidate()
-        activeObservation = nil
-        controller = nil
-        isPossible = false
-        isActive = false
-        configureController(displayLayer: displayLayer)
+        tearDownController()
+        self.displayLayer = displayLayer
+        isPossible = AVPictureInPictureController.isPictureInPictureSupported()
     }
 
     func toggle() {
-        guard let controller, controller.isPictureInPicturePossible else { return }
-        if controller.isPictureInPictureActive {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        if let controller, controller.isPictureInPictureActive {
+            isUserInitiated = false
+            manualStartPending = false
             controller.stopPictureInPicture()
         } else {
-            controller.startPictureInPicture()
+            isUserInitiated = true
+            manualStartPending = true
+            configureAudioSession()
+            configureControllerIfNeeded()
+            startPendingPictureInPictureIfPossible()
+        }
+    }
+
+    func suppressAutomaticPictureInPicture() {
+        guard !isUserInitiated else { return }
+        manualStartPending = false
+        if controller?.isPictureInPictureActive == true {
+            controller?.stopPictureInPicture()
+        } else {
+            tearDownController()
         }
     }
 
@@ -64,7 +78,8 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
         }
     }
 
-    private func configureController(displayLayer: AVSampleBufferDisplayLayer) {
+    private func configureControllerIfNeeded() {
+        guard controller == nil else { return }
         guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
         let source = AVPictureInPictureController.ContentSource(
             sampleBufferDisplayLayer: displayLayer,
@@ -82,7 +97,9 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
             options: [.initial, .new]
         ) { [weak self] controller, _ in
             DispatchQueue.main.async {
-                self?.isPossible = controller.isPictureInPicturePossible
+                guard let self else { return }
+                self.isPossible = controller.isPictureInPicturePossible
+                self.startPendingPictureInPictureIfPossible()
             }
         }
         activeObservation = controller.observe(
@@ -90,9 +107,49 @@ final class PictureInPictureCoordinator: NSObject, ObservableObject {
             options: [.initial, .new]
         ) { [weak self] controller, _ in
             DispatchQueue.main.async {
-                self?.isActive = controller.isPictureInPictureActive
+                guard let self else { return }
+                self.isActive = controller.isPictureInPictureActive
+                if controller.isPictureInPictureActive, !self.isUserInitiated {
+                    controller.stopPictureInPicture()
+                }
             }
         }
+    }
+
+    private func startPendingPictureInPictureIfPossible() {
+        guard manualStartPending,
+              isUserInitiated,
+              let controller,
+              controller.isPictureInPicturePossible,
+              !controller.isPictureInPictureActive else {
+            return
+        }
+        manualStartPending = false
+        controller.startPictureInPicture()
+    }
+
+    private func stopForForeground() {
+        isUserInitiated = false
+        manualStartPending = false
+        if controller?.isPictureInPictureActive == true {
+            controller?.stopPictureInPicture()
+        } else {
+            tearDownController()
+        }
+    }
+
+    private func tearDownController() {
+        possibleObservation?.invalidate()
+        possibleObservation = nil
+        activeObservation?.invalidate()
+        activeObservation = nil
+        controller = nil
+        isActive = false
+        isPossible = AVPictureInPictureController.isPictureInPictureSupported()
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: .notifyOthersOnDeactivation
+        )
     }
 
     deinit {
@@ -142,6 +199,23 @@ extension PictureInPictureCoordinator: AVPictureInPictureSampleBufferPlaybackDel
 }
 
 extension PictureInPictureCoordinator: AVPictureInPictureControllerDelegate {
+    func pictureInPictureControllerDidStopPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        isUserInitiated = false
+        manualStartPending = false
+        tearDownController()
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        isUserInitiated = false
+        manualStartPending = false
+        tearDownController()
+    }
+
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void

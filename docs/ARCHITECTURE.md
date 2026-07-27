@@ -4,11 +4,11 @@
 
 ### Sender app
 
-The sender app is a SwiftUI configuration surface. It browses Bonjour receivers, stores the selected receiver service name, pairing code, and quality preset in `group.dev.screenshare.sender`, then presents Apple's `RPSystemBroadcastPickerView`.
+The sender app is a SwiftUI configuration surface. It stores the selected delivery mode and quality preset in `group.dev.screenshare.sender`, then presents Apple's `RPSystemBroadcastPickerView`. Native mode also stores the selected Bonjour receiver and pairing code. Browser mode stores a random access key and shows a QR/local URL derived from the sender's Wi-Fi address.
 
 ### Broadcast Upload Extension
 
-ReplayKit starts `SampleHandler` outside the sender app. The handler:
+ReplayKit starts `SampleHandler` outside the sender app. In native mode, the handler:
 
 1. Loads the paired receiver from the App Group.
 2. Browses only `_screenshare._tcp`.
@@ -19,9 +19,13 @@ ReplayKit starts `SampleHandler` outside the sender app. The handler:
 
 The extension remains the capture owner when the sender app is no longer frontmost.
 
+In Browser mode, the handler starts a fixed-port `NWListener` instead of receiver discovery. Authorized HTTP clients receive a minimal fullscreen page and a bounded multipart MJPEG stream. JPEG encoding runs on a serial worker, drops incoming capture samples while that worker is busy, and each browser keeps at most one network send outstanding. This prevents a slow browser from growing the ReplayKit extension's memory.
+
 ### Receiver app
 
 The receiver creates an `NWListener`, advertises a stable Bonjour service name, accepts one authenticated sender, and feeds AVCC H.264 access units to an `AVSampleBufferDisplayLayer`. It derives the intended display aspect from the encoded dimensions plus ReplayKit orientation metadata and requests matching portrait or landscape `UIWindowScene` geometry. A new connection replaces the old connection only after it has successfully decrypted and decoded a valid `hello` packet.
+
+The receiver does not construct an `AVPictureInPictureController` during normal playback. It creates one only after an explicit user PiP tap, eliminating automatic nested playback on Home. A finite UIKit background task keeps the native connection warm for at most 60 seconds without visible playback; expiration stops the listener until the app becomes active again.
 
 ## Wire format
 
@@ -78,5 +82,6 @@ The receiver retains its last rendered image during transient disconnects and do
 - The pairing code is a shared secret; anyone who obtains it while on the reachable LAN can connect.
 - Generate a new code from the receiver if it is exposed. This disconnects the sender immediately.
 - Bonjour service metadata contains only a random receiver identifier and protocol version.
+- Browser mode is local HTTP protected by an unguessable URL key, not the native end-to-end encrypted transport. Treat the complete URL as a secret and use it only on a trusted LAN.
 
 For internet/WAN operation, add an authenticated relay or VPN instead of forwarding the raw listener port. Bonjour is local-link discovery and this implementation intentionally does not expose a public listener.

@@ -42,7 +42,8 @@ GitHub Actions proves that both app targets and unit tests compile under Xcode 2
 - Move between access points on the same LAN.
 - Background and reopen the sender app while the system broadcast continues.
 - Background and reopen receiver with PiP active.
-- Background and reopen receiver with PiP disabled; verify automatic reconnection and retained last frame.
+- Background and reopen receiver with PiP disabled within 60 seconds; verify the native session stayed warm and no floating window appeared.
+- Leave receiver backgrounded past 60 seconds; verify clean socket shutdown and automatic reconnection on reopen.
 - Respring the sender: confirm that the system broadcast ends and can be restarted without re-pairing.
 
 ## Performance
@@ -64,7 +65,17 @@ If the extension is terminated under memory pressure, lower the sharp preset bit
 - Status bar/system chrome is hidden while foreground viewing.
 - A tap reveals PiP and status controls.
 - PiP starts only from the user control; leaving without tapping PiP does not create a floating nested mirror.
-- Reopening after a non-PiP background transition retains the last image and reconnects without a prompt.
+- Reopening during the bounded non-PiP background grace returns to the live session without a prompt.
 - Reopening the receiver returns to the same renderer without a startup animation.
 - Control Center screen recording records normal mirrored content and orientation changes.
 - Document the iOS recording indicator and any protected black surfaces.
+
+## Browser mode
+
+- Select Browser, save, and verify the QR and copied URL contain the sender's current Wi-Fi IPv4 address, port `49373`, and a random access key.
+- Start the broadcast and open the URL from Safari and at least one other browser on the same LAN.
+- Verify a URL with a missing or one-character-wrong key returns HTTP 403.
+- Verify portrait and both landscape directions render upright and preserve aspect ratio.
+- Verify the page contains no controls or watermark after entering browser fullscreen.
+- Open two simultaneous viewers and verify slow-client backpressure does not build an unbounded JPEG queue.
+- Generate a new private link and verify the old URL fails on the next broadcast.

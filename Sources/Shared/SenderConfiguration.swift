@@ -1,12 +1,19 @@
 import Foundation
 
 struct SenderConfiguration: Equatable {
+    var deliveryMode: DeliveryMode
     var receiverServiceName: String
     var pairingCode: String
     var quality: StreamQuality
+    var browserAccessKey: String
 
     var isReady: Bool {
-        !receiverServiceName.isEmpty && PairingSecret.isValid(pairingCode)
+        switch deliveryMode {
+        case .nativeReceiver:
+            return !receiverServiceName.isEmpty && PairingSecret.isValid(pairingCode)
+        case .browser:
+            return PairingSecret.isValid(browserAccessKey)
+        }
     }
 }
 
@@ -14,9 +21,11 @@ final class SenderConfigurationStore {
     static let shared = SenderConfigurationStore()
 
     private enum Key {
+        static let deliveryMode = "deliveryMode"
         static let serviceName = "receiverServiceName"
         static let pairingCode = "pairingCode"
         static let quality = "streamQuality"
+        static let browserAccessKey = "browserAccessKey"
     }
 
     private let defaults: UserDefaults
@@ -26,17 +35,25 @@ final class SenderConfigurationStore {
     }
 
     func load() -> SenderConfiguration {
-        SenderConfiguration(
+        let savedBrowserKey = defaults.string(forKey: Key.browserAccessKey) ?? PairingSecret.generate()
+        if defaults.string(forKey: Key.browserAccessKey) == nil {
+            defaults.set(PairingSecret.normalize(savedBrowserKey), forKey: Key.browserAccessKey)
+        }
+        return SenderConfiguration(
+            deliveryMode: DeliveryMode(rawValue: defaults.string(forKey: Key.deliveryMode) ?? "") ?? .nativeReceiver,
             receiverServiceName: defaults.string(forKey: Key.serviceName) ?? "",
             pairingCode: defaults.string(forKey: Key.pairingCode) ?? "",
-            quality: StreamQuality(rawValue: defaults.string(forKey: Key.quality) ?? "") ?? .balanced
+            quality: StreamQuality(rawValue: defaults.string(forKey: Key.quality) ?? "") ?? .balanced,
+            browserAccessKey: PairingSecret.normalize(savedBrowserKey)
         )
     }
 
     func save(_ configuration: SenderConfiguration) {
+        defaults.set(configuration.deliveryMode.rawValue, forKey: Key.deliveryMode)
         defaults.set(configuration.receiverServiceName, forKey: Key.serviceName)
         defaults.set(PairingSecret.normalize(configuration.pairingCode), forKey: Key.pairingCode)
         defaults.set(configuration.quality.rawValue, forKey: Key.quality)
+        defaults.set(PairingSecret.normalize(configuration.browserAccessKey), forKey: Key.browserAccessKey)
     }
 }
 

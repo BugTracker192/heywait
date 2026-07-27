@@ -10,8 +10,8 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CLANG_ENABLE_MODULES: YES
     IPHONEOS_DEPLOYMENT_TARGET: "15.0"
-    MARKETING_VERSION: "1.0.10"
-    CURRENT_PROJECT_VERSION: "11"
+    MARKETING_VERSION: "1.0.11"
+    CURRENT_PROJECT_VERSION: "12"
     DEVELOPMENT_TEAM: ""
 
 targets:
@@ -41,7 +41,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: Screen Share uses your local network to find and securely connect to your viewing device.
+        NSLocalNetworkUsageDescription: Screen Share uses your local network to find a receiver or host your private browser viewer.
         NSBonjourServices:
           - _screenshare._tcp
         UISupportedInterfaceOrientations:
