@@ -4,47 +4,91 @@ import Network
 final class BrowserWaitingServer {
     private let queue = DispatchQueue(label: "dev.screenshare.browser.waiting")
     private var listener: NWListener?
+    private var restartWorkItem: DispatchWorkItem?
     private var clients: [ObjectIdentifier: BrowserWaitingClient] = [:]
     private var accessKey = ""
+    private var generation: UInt64 = 0
 
     func start(accessKey: String) {
         queue.async { [weak self] in
             guard let self else { return }
+            let normalizedKey = PairingSecret.normalize(accessKey)
+            if self.listener != nil, self.accessKey == normalizedKey {
+                return
+            }
+            self.generation &+= 1
             self.stopInternal()
-            self.accessKey = PairingSecret.normalize(accessKey)
+            self.accessKey = normalizedKey
             guard PairingSecret.isValid(self.accessKey),
                   let port = NWEndpoint.Port(rawValue: AppConstants.browserBootstrapPort) else {
                 return
             }
-
-            let tcp = NWProtocolTCP.Options()
-            tcp.noDelay = true
-            let parameters = NWParameters(tls: nil, tcp: tcp)
-            parameters.includePeerToPeer = true
-
-            do {
-                let listener = try NWListener(using: parameters, on: port)
-                self.listener = listener
-                listener.stateUpdateHandler = { [weak self, weak listener] state in
-                    guard let self, let listener, listener === self.listener else { return }
-                    if case .failed = state {
-                        self.stopInternal()
-                    }
-                }
-                listener.newConnectionHandler = { [weak self] connection in
-                    self?.accept(connection)
-                }
-                listener.start(queue: self.queue)
-            } catch {
-                // Another setup listener may still be winding down.
-            }
+            self.beginListening(on: port, generation: self.generation)
         }
     }
 
     func stop() {
         queue.async { [weak self] in
-            self?.stopInternal()
+            guard let self else { return }
+            self.generation &+= 1
+            self.stopInternal()
         }
+    }
+
+    private func beginListening(on port: NWEndpoint.Port, generation: UInt64) {
+        guard generation == self.generation else { return }
+        restartWorkItem?.cancel()
+        restartWorkItem = nil
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        listener = nil
+
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcp)
+        parameters.includePeerToPeer = true
+
+        do {
+            let listener = try NWListener(using: parameters, on: port)
+            self.listener = listener
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                guard let self,
+                      let listener,
+                      listener === self.listener,
+                      generation == self.generation else { return }
+                switch state {
+                case .ready:
+                    self.restartWorkItem?.cancel()
+                    self.restartWorkItem = nil
+                case .waiting:
+                    self.scheduleRestart(on: port, generation: generation, after: 1.5)
+                case .failed:
+                    self.scheduleRestart(on: port, generation: generation, after: 0.5)
+                default:
+                    break
+                }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.accept(connection)
+            }
+            listener.start(queue: queue)
+        } catch {
+            scheduleRestart(on: port, generation: generation, after: 0.5)
+        }
+    }
+
+    private func scheduleRestart(
+        on port: NWEndpoint.Port,
+        generation: UInt64,
+        after delay: TimeInterval
+    ) {
+        guard generation == self.generation else { return }
+        restartWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.beginListening(on: port, generation: generation)
+        }
+        restartWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func accept(_ connection: NWConnection) {
@@ -67,6 +111,8 @@ final class BrowserWaitingServer {
     }
 
     private func stopInternal() {
+        restartWorkItem?.cancel()
+        restartWorkItem = nil
         listener?.stateUpdateHandler = nil
         listener?.cancel()
         listener = nil

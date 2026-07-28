@@ -107,25 +107,39 @@ final class AudioPlaybackEngine {
         let channelCount = Int(frame.channelCount)
         let frameCount = Int(frame.frameCount)
         return frame.samples.withUnsafeBytes { sourceBytes in
-            guard let source = sourceBytes.baseAddress else { return nil }
+            guard !sourceBytes.isEmpty else { return nil }
             for channel in 0..<channelCount {
                 let destination = channels[channel]
                 for frameIndex in 0..<frameCount {
                     let sampleIndex = frame.isInterleaved
                         ? frameIndex * channelCount + channel
                         : channel * frameCount + frameIndex
+                    let byteOffset = sampleIndex * frame.format.bytesPerSample
                     switch frame.format {
                     case .float32:
-                        destination[frameIndex] = source
-                            .assumingMemoryBound(to: Float.self)[sampleIndex]
+                        let raw = sourceBytes.loadUnaligned(
+                            fromByteOffset: byteOffset,
+                            as: UInt32.self
+                        )
+                        destination[frameIndex] = Float(
+                            bitPattern: UInt32(littleEndian: raw)
+                        )
                     case .int16:
-                        destination[frameIndex] = Float(
-                            source.assumingMemoryBound(to: Int16.self)[sampleIndex]
-                        ) / 32_768
+                        let raw = sourceBytes.loadUnaligned(
+                            fromByteOffset: byteOffset,
+                            as: UInt16.self
+                        )
+                        destination[frameIndex] = Float(Int16(
+                            bitPattern: UInt16(littleEndian: raw)
+                        )) / 32_768
                     case .int32:
-                        destination[frameIndex] = Float(
-                            source.assumingMemoryBound(to: Int32.self)[sampleIndex]
-                        ) / 2_147_483_648
+                        let raw = sourceBytes.loadUnaligned(
+                            fromByteOffset: byteOffset,
+                            as: UInt32.self
+                        )
+                        destination[frameIndex] = Float(Int32(
+                            bitPattern: UInt32(littleEndian: raw)
+                        )) / 2_147_483_648
                     }
                 }
             }

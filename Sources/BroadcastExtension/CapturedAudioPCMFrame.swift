@@ -37,8 +37,9 @@ enum CapturedAudioPCMFrame {
         }
 
         let isInterleaved = flags & kAudioFormatFlagIsNonInterleaved == 0
-        let bytesPerChannel = frameCount * sampleFormat.bytesPerSample
         let expectedBufferCount = isInterleaved ? 1 : channels
+        let bytesPerFrame = Int(description.mBytesPerFrame)
+        guard bytesPerFrame > 0 else { return nil }
         let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let timestampMicroseconds: UInt64
         if timestamp.isValid, timestamp.seconds.isFinite, timestamp.seconds > 0 {
@@ -52,23 +53,29 @@ enum CapturedAudioPCMFrame {
                 flags: .audioBufferListAssure16ByteAlignment
             ) { buffers, _ in
                 guard buffers.count == expectedBufferCount else { return nil }
-                var samples = Data()
-                samples.reserveCapacity(bytesPerChannel * channels)
-
+                var sourceBuffers: [Data] = []
+                sourceBuffers.reserveCapacity(buffers.count)
                 for buffer in buffers {
-                    let requiredBytes = isInterleaved
-                        ? bytesPerChannel * channels
-                        : bytesPerChannel
+                    let requiredBytes = frameCount * bytesPerFrame
                     guard let source = buffer.mData,
                           Int(buffer.mDataByteSize) >= requiredBytes else {
                         return nil
                     }
-                    samples.append(source.assumingMemoryBound(to: UInt8.self), count: requiredBytes)
+                    sourceBuffers.append(Data(bytes: source, count: requiredBytes))
                 }
+                guard let samples = LinearPCMNormalizer.planarFloat32(
+                    buffers: sourceBuffers,
+                    sourceFormat: sampleFormat,
+                    isInterleaved: isInterleaved,
+                    isBigEndian: flags & kAudioFormatFlagIsBigEndian != 0,
+                    channelCount: channels,
+                    frameCount: frameCount,
+                    bytesPerFrame: bytesPerFrame
+                ) else { return nil }
 
                 return try AudioPCMFrame(
-                    format: sampleFormat,
-                    isInterleaved: isInterleaved,
+                    format: .float32,
+                    isInterleaved: false,
                     channelCount: UInt8(channels),
                     sampleRate: UInt32(description.mSampleRate.rounded()),
                     frameCount: UInt32(frameCount),

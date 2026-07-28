@@ -168,12 +168,14 @@ struct SenderRootView: View {
         .onChange(of: model.quality) { _ in model.markDirty() }
         .onChange(of: scenePhase) { phase in
             switch phase {
-            case .inactive, .background:
-                model.stopBrowserBootstrap()
             case .active:
                 // The setup and live listeners use different ports, so the QR
                 // page can remain reachable while ReplayKit owns the live port.
                 model.startBrowserBootstrap()
+            case .inactive, .background:
+                // Do not cancel an in-flight QR request while the broadcast
+                // sheet moves the app through inactive/background states.
+                break
             @unknown default:
                 break
             }
@@ -420,9 +422,7 @@ struct SenderRootView: View {
                     }
 
                     if broadcastEnabled {
-                        BroadcastPicker {
-                            model.stopBrowserBootstrap()
-                        }
+                        BroadcastPicker {}
                             .frame(maxWidth: .infinity, minHeight: 58)
                             .accessibilityLabel("Start screen sharing")
                     }

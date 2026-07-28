@@ -163,6 +163,45 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(AppConstants.protocolVersion, 2)
     }
 
+    func testPCMNormalizerConvertsInterleavedInt16ToPlanarFloat32() throws {
+        // Frames: (L: 0, R: max), (L: min, R: half).
+        let interleaved = Data([0x00, 0x00, 0xFF, 0x7F, 0x00, 0x80, 0x00, 0x40])
+        let normalized = try XCTUnwrap(LinearPCMNormalizer.planarFloat32(
+            buffers: [interleaved],
+            sourceFormat: .int16,
+            isInterleaved: true,
+            isBigEndian: false,
+            channelCount: 2,
+            frameCount: 2,
+            bytesPerFrame: 4
+        ))
+
+        XCTAssertEqual(floatSample(in: normalized, at: 0), 0, accuracy: 0.0001)
+        XCTAssertEqual(floatSample(in: normalized, at: 1), -1, accuracy: 0.0001)
+        XCTAssertEqual(
+            floatSample(in: normalized, at: 2),
+            Float(32_767) / 32_768,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(floatSample(in: normalized, at: 3), 0.5, accuracy: 0.0001)
+    }
+
+    func testPCMNormalizerHonorsBigEndianSamples() throws {
+        let bigEndianMono = Data([0x40, 0x00, 0xC0, 0x00])
+        let normalized = try XCTUnwrap(LinearPCMNormalizer.planarFloat32(
+            buffers: [bigEndianMono],
+            sourceFormat: .int16,
+            isInterleaved: false,
+            isBigEndian: true,
+            channelCount: 1,
+            frameCount: 2,
+            bytesPerFrame: 2
+        ))
+
+        XCTAssertEqual(floatSample(in: normalized, at: 0), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(floatSample(in: normalized, at: 1), -0.5, accuracy: 0.0001)
+    }
+
     func testVideoConfigurationDecodesLegacyPayload() throws {
         let legacyJSON = """
         {
@@ -368,7 +407,15 @@ final class WireProtocolTests: XCTestCase {
                 encodedHeight: 1_440,
                 videoOrientation: 6
             ),
-            .landscape
+            .landscapeLeft
+        )
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.interfaceOrientations(
+                encodedWidth: 664,
+                encodedHeight: 1_440,
+                videoOrientation: 8
+            ),
+            .landscapeRight
         )
         XCTAssertEqual(
             ReceiverOrientationCoordinator.interfaceOrientations(
@@ -378,5 +425,12 @@ final class WireProtocolTests: XCTestCase {
             ),
             .portrait
         )
+    }
+
+    private func floatSample(in data: Data, at index: Int) -> Float {
+        let raw = data.withUnsafeBytes {
+            $0.loadUnaligned(fromByteOffset: index * 4, as: UInt32.self)
+        }
+        return Float(bitPattern: UInt32(littleEndian: raw))
     }
 }
