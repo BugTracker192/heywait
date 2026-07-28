@@ -10,11 +10,12 @@ The repository has no runtime binary dependencies. XcodeGen creates the project 
 
 ## What is implemented
 
-- Full-display ReplayKit capture from the sender, including other apps and orientation changes.
+- Full-display ReplayKit capture from the sender, including other apps, orientation changes, and app/game audio.
 - Hardware H.264 encoding through VideoToolbox with 60 FPS targets for Balanced/Sharp and 30 FPS for Data Saver, with quality-specific resolution bounds to stay within ReplayKit's extension memory budget.
 - Hardware-backed low-delay display with `AVSampleBufferDisplayLayer`.
 - Bonjour discovery, automatic reconnect, TCP no-delay, keepalive, and bounded pre-encode backpressure that skips uncoded capture samples without breaking H.264 reference frames.
-- 16-character local pairing code and ChaCha20-Poly1305 authenticated encryption for every control and video payload.
+- 16-character local pairing code and ChaCha20-Poly1305 authenticated encryption for every control, video, and app-audio payload.
+- Low-latency game/app-audio playback in the native receiver and browser viewer, with bounded queues that discard stale audio rather than accumulating delay. Microphone audio is intentionally not captured.
 - Clean full-screen viewer. Controls appear only after a tap and automatically disappear.
 - Session persistence across transient Wi-Fi loss and app reopening.
 - A bounded 60-second receiver background grace period with no automatic floating PiP window.
@@ -47,7 +48,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-In Browser mode, the Sender setup page listens on TCP port `49373` and the ReplayKit extension owns the separate live-stream port `49374`. Both require the random access key embedded in the generated URL. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs; this removes the per-frame JPEG bottleneck and targets 60 FPS for Balanced/Sharp. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. Native and Browser modes remain mutually exclusive per broadcast. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
+In Browser mode, the Sender setup page listens on TCP port `49373` and the ReplayKit extension owns the separate live-stream port `49374`. Both require the random access key embedded in the generated URL. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs; this removes the per-frame JPEG bottleneck and targets 60 FPS for Balanced/Sharp. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream. Native and Browser modes remain mutually exclusive per broadcast. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
 
 The Sender app serves a black waiting page from the setup port while foregrounded. That page probes a key-protected readiness image on the live port and redirects with the private key as soon as the broadcast extension is ready. Separate ports eliminate the listener handoff race that could leave the browser permanently on “Waiting for Screen Share.” Sender also explicitly synchronizes App Group preferences before launch so the separate extension process cannot read the previous delivery mode.
 
@@ -117,7 +118,8 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 2. In Sender, select **Browser**.
 3. Copy or scan the private URL, choose quality, and tap **Save browser mode**. Opening it before the broadcast shows a black waiting page.
 4. Start the Screen Share broadcast from the same sender screen.
-5. The waiting page automatically hands over to the live extension. If the link was not already open, open it now in Safari, Chrome, Firefox, or another browser. Tap the video for fullscreen where the browser supports it.
+5. The waiting page automatically hands over to the live extension. If the link was not already open, open it now in Safari, Chrome, Firefox, or another browser.
+6. Tap the video once to enable sound and request fullscreen where the browser supports it. Browsers require this one user gesture before a page may play audio.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.
 
@@ -182,6 +184,8 @@ This design was checked against current documentation on 2026-07-27:
 - Apple lists Xcode 26 with Swift 6.2 and the iOS 26 SDK: [Xcode 26 release notes](https://developer.apple.com/documentation/Xcode-Release-Notes/xcode-26-release-notes).
 - GitHub's `macos-26` hosted image includes Xcode 26 and iOS 26 SDKs: [runner image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md).
 - ReplayKit's Broadcast Upload Extension receives full-display video sample buffers through `RPBroadcastSampleHandler`: [Apple ReplayKit handler documentation](https://developer.apple.com/documentation/replaykit/rpbroadcastsamplehandler). ReplayKit is deprecated in the newest SDK documentation but remains the applicable API for the iOS 15–16.5.1 sender; ScreenCaptureKit's iOS replacement requires iOS 27.
+- ReplayKit identifies captured app audio separately as `RPSampleBufferType.audioApp`; Screen Share forwards that stream but deliberately ignores microphone buffers: [ReplayKit sample-buffer types](https://developer.apple.com/documentation/replaykit/rpsamplebuffertype).
+- The native receiver schedules PCM buffers through `AVAudioPlayerNode`; the browser uses Web Audio after the viewer's first tap because browsers gate audio playback behind a user gesture: [AVAudioPlayerNode `scheduleBuffer`](https://developer.apple.com/documentation/avfaudio/avaudioplayernode/schedulebuffer(_:at:options:completionhandler:)), [Web Audio API](https://www.w3.org/TR/webaudio-1.0/).
 - Apple's iOS ScreenCaptureKit sample requires iOS 27 and introduces the `screen-capture` background mode there: [Capturing screen content on iOS](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-on-ios).
 - Apple documents that an ordinary iOS app is normally suspended shortly after entering the background: [Extending background execution time](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time).
 - UIKit documents `beginBackgroundTask` as a finite request that can expire earlier and must always be ended; the receiver caps its grace period at 60 seconds and handles early expiration: [`beginBackgroundTask`](https://developer.apple.com/documentation/uikit/uiapplication/beginbackgroundtask(expirationhandler:)).

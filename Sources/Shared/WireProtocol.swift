@@ -8,6 +8,7 @@ enum PacketKind: UInt8 {
     case videoConfiguration = 16
     case videoFrame = 17
     case orientation = 18
+    case audioPCM = 19
     case heartbeat = 32
     case streamError = 255
 }

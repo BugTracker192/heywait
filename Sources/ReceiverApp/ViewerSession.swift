@@ -14,6 +14,7 @@ final class ViewerSession: ObservableObject {
 
     private let server = ReceiverServer()
     private let decoder: H264DisplayDecoder
+    private let audio = AudioPlaybackEngine()
     private var cancellables: Set<AnyCancellable> = []
     private var pausedForBackground = false
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
@@ -49,6 +50,7 @@ final class ViewerSession: ObservableObject {
             guard let self else { return }
             if case .connected = state {
                 self.decoder.reset(preserveImage: self.hasPicture)
+                self.audio.reset()
                 self.videoStatus = nil
                 if !self.hasPicture {
                     self.frameCount = 0
@@ -90,6 +92,7 @@ final class ViewerSession: ObservableObject {
         frameCount = 0
         videoStatus = nil
         decoder.reset()
+        audio.reset()
         ReceiverOrientationCoordinator.shared.reset()
         server.start(identity: identity)
     }
@@ -179,6 +182,9 @@ final class ViewerSession: ObservableObject {
                 | UInt32(packet.payload[3])
             ReceiverOrientationCoordinator.shared.update(videoOrientation: value)
             decoder.updateOrientation(value)
+        case .audioPCM:
+            guard let frame = try? AudioPCMFrame(encoded: packet.payload) else { return }
+            audio.enqueue(frame)
         case .streamError:
             break
         default:
@@ -192,6 +198,7 @@ final class ViewerSession: ObservableObject {
             UIApplication.shared.endBackgroundTask(backgroundTaskID)
         }
         server.stop()
+        audio.reset()
         UIApplication.shared.isIdleTimerDisabled = false
     }
 }

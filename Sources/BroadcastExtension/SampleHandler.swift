@@ -97,12 +97,22 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
         guard !isPaused,
-              !isFinishing,
-              sampleBufferType == .video else {
+              !isFinishing else {
             return
         }
 
         autoreleasepool {
+            if sampleBufferType == .audioApp {
+                guard let frame = CapturedAudioPCMFrame.make(from: sampleBuffer) else { return }
+                if let browserServer {
+                    browserServer.publish(audio: frame)
+                } else if transport?.isReady == true {
+                    transport?.sendAudio(frame)
+                }
+                return
+            }
+            guard sampleBufferType == .video else { return }
+
             let orientation = videoOrientation(from: sampleBuffer)
             if let browserServer, browserServer.hasH264Clients, let browserH264Encoder {
                 if orientation != lastOrientation {

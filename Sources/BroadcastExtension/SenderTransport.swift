@@ -8,6 +8,7 @@ final class SenderTransport {
         let payload: Data
 
         var isVideoFrame: Bool { kind == .videoFrame }
+        var isAudioFrame: Bool { kind == .audioPCM }
     }
 
     private let configuration: SenderConfiguration
@@ -89,6 +90,10 @@ final class SenderTransport {
         )
     }
 
+    func sendAudio(_ frame: AudioPCMFrame) {
+        enqueue(kind: .audioPCM, payload: frame.encoded)
+    }
+
     func sendOrientation(_ orientation: UInt32) {
         var value = orientation.bigEndian
         let payload = withUnsafeBytes(of: &value) { Data($0) }
@@ -110,6 +115,15 @@ final class SenderTransport {
                 return
             }
 
+            if kind == .audioPCM {
+                let audioCount = self.pending.reduce(into: 0) { count, packet in
+                    if packet.isAudioFrame { count += 1 }
+                }
+                if audioCount >= AppConstants.maximumPendingAudioFrames,
+                   let staleIndex = self.pending.firstIndex(where: \.isAudioFrame) {
+                    self.pending.remove(at: staleIndex)
+                }
+            }
             self.pending.append(PendingPacket(kind: kind, flags: flags, payload: payload))
             self.pump()
         }

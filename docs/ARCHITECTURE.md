@@ -18,12 +18,12 @@ ReplayKit starts `SampleHandler` outside the sender app. In native mode, the han
 2. Browses only `_screenshare._tcp`.
 3. Connects to the exact saved Bonjour service name.
 4. Authenticates with the saved pairing code.
-5. passes ReplayKit video buffers to a real-time VideoToolbox H.264 encoder.
+5. passes ReplayKit video buffers to a real-time VideoToolbox H.264 encoder and app-audio buffers to the bounded PCM transport.
 6. Sends configuration/keyframe data and subsequent frames.
 
 The extension remains the capture owner when the sender app is no longer frontmost.
 
-In Browser mode, the handler starts a fixed `NWListener` on live port `49374` instead of receiver discovery. Authorized current browsers receive a bounded hardware-H.264 stream decoded with WebCodecs. A client-side compatibility path falls back to multipart MJPEG when WebCodecs or the H.264 decoder is unavailable. JPEG encoding runs on a serial worker, drops incoming capture samples while that worker is busy, and each browser keeps at most one network send outstanding. The server also monitors streaming sockets for disconnects so a failed H.264 attempt cannot remain counted and starve its MJPEG fallback. These bounds prevent a slow browser from growing the ReplayKit extension's memory.
+In Browser mode, the handler starts a fixed `NWListener` on live port `49374` instead of receiver discovery. Authorized current browsers receive a bounded hardware-H.264 stream decoded with WebCodecs and a separate bounded PCM app-audio stream decoded with Web Audio after one user tap. A client-side compatibility path falls back to multipart MJPEG when WebCodecs or the H.264 decoder is unavailable. JPEG encoding runs on a serial worker, drops incoming capture samples while that worker is busy, and each browser keeps at most one network send outstanding. The server also monitors streaming sockets for disconnects so a failed H.264 attempt cannot remain counted and starve its MJPEG fallback. These bounds prevent a slow browser from growing the ReplayKit extension's memory.
 
 ### Receiver app
 
@@ -55,6 +55,7 @@ The header exposes packet type, sequence, and ciphertext length to the local net
 - `helloAcknowledgement`: proves the receiver has the same pairing key.
 - `videoConfiguration`: H.264 SPS/PPS, encoded dimensions, and ReplayKit orientation.
 - `videoFrame`: AVCC-formatted H.264 access unit; keyframes carry a flag.
+- `audioPCM`: versioned app-audio metadata plus interleaved or planar linear PCM samples.
 - `orientation`: new ReplayKit image-orientation value.
 - `heartbeat`: keeps an idle connection observable.
 - `streamError`: reserved for a future sender error surface.

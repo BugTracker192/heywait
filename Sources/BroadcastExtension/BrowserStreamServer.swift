@@ -4,6 +4,7 @@ import Network
 private enum BrowserStreamKind {
     case mjpeg
     case h264
+    case audio
 }
 
 final class BrowserStreamServer {
@@ -118,6 +119,15 @@ final class BrowserStreamServer {
         }
     }
 
+    func publish(audio frame: AudioPCMFrame) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            for client in self.clients.values where client.streamKind == .audio {
+                client.publish(audio: frame)
+            }
+        }
+    }
+
     func stop() {
         queue.async { [weak self] in
             self?.stopInternal()
@@ -141,18 +151,20 @@ final class BrowserStreamServer {
             guard let self else { return }
             self.clientCountLock.lock()
             if let previous {
-                self.streamingClientCount -= 1
                 if previous == .h264 {
+                    self.streamingClientCount -= 1
                     self.h264ClientCount -= 1
-                } else {
+                } else if previous == .mjpeg {
+                    self.streamingClientCount -= 1
                     self.mjpegClientCount -= 1
                 }
             }
             if let current {
-                self.streamingClientCount += 1
                 if current == .h264 {
+                    self.streamingClientCount += 1
                     self.h264ClientCount += 1
-                } else {
+                } else if current == .mjpeg {
+                    self.streamingClientCount += 1
                     self.mjpegClientCount += 1
                 }
             }
@@ -215,6 +227,8 @@ private final class BrowserHTTPClient {
     private var sendPending = false
     private var h264SendQueue: [Data] = []
     private var h264SendPending = false
+    private var audioSendQueue: [Data] = []
+    private var audioSendPending = false
     private var isAwaitingH264KeyFrame = true
     private(set) var streamKind: BrowserStreamKind?
 
@@ -281,6 +295,15 @@ private final class BrowserHTTPClient {
         sendNextH264Chunk()
     }
 
+    func publish(audio frame: AudioPCMFrame) {
+        guard streamKind == .audio, !stopped else { return }
+        if audioSendQueue.count >= AppConstants.maximumPendingAudioFrames {
+            audioSendQueue.removeFirst()
+        }
+        audioSendQueue.append(BrowserH264Wire.chunk(frame.encoded))
+        sendNextAudioChunk()
+    }
+
     func stop() {
         guard !stopped else { return }
         stopped = true
@@ -309,6 +332,26 @@ private final class BrowserHTTPClient {
                 self.stop()
             } else {
                 self.sendNextH264Chunk()
+            }
+        })
+    }
+
+    private func sendNextAudioChunk() {
+        guard streamKind == .audio,
+              !audioSendPending,
+              !audioSendQueue.isEmpty,
+              !stopped else {
+            return
+        }
+        audioSendPending = true
+        let chunk = audioSendQueue.removeFirst()
+        connection.send(content: chunk, completion: .contentProcessed { [weak self] error in
+            guard let self else { return }
+            self.audioSendPending = false
+            if error != nil {
+                self.stop()
+            } else {
+                self.sendNextAudioChunk()
             }
         })
     }
@@ -381,6 +424,8 @@ private final class BrowserHTTPClient {
             startMJPEGStream()
         case "/h264":
             startH264Stream()
+        case "/audio":
+            startAudioStream()
         case "/manifest.webmanifest":
             sendData(
                 BrowserWebApp.manifest(accessKey: accessKey),
@@ -427,16 +472,19 @@ private final class BrowserHTTPClient {
             canvas,img{position:absolute;inset:0;width:100dvw;height:100dvh;background:#000}
             img{display:none;object-fit:contain}
             #status{position:fixed;inset:0;display:grid;place-items:center;color:#aaa;font:17px -apple-system,sans-serif;text-align:center;pointer-events:none}
+            #sound{position:fixed;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translateX(-50%);padding:9px 14px;border-radius:999px;background:#222c;color:#fff;font:14px -apple-system,sans-serif;pointer-events:none}
           </style>
         </head>
         <body>
           <div id="stage"><canvas id="video"></canvas><img id="fallback" alt="Live Screen Share"></div>
           <div id="status">Connecting to live screen...</div>
+          <div id="sound">Tap once for sound</div>
           <script>
             const key='\(accessKey)',stage=document.getElementById('stage');
             const canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false});
-            const fallback=document.getElementById('fallback'),status=document.getElementById('status');
+            const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound');
             let decoder=null,latest=null,orientation=1,usingFallback=false,h264Abort=new AbortController();
+            let audioContext=null,audioEnabled=false,audioLoopRunning=false,audioAt=0;
 
             function resize(){
               const d=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.round(innerWidth*d)),h=Math.max(1,Math.round(innerHeight*d));
@@ -512,7 +560,61 @@ private final class BrowserHTTPClient {
               fallback.onerror=()=>{status.style.display='grid';setTimeout(connect,700)};
               connect();
             }
+            function playAudio(v){
+              if(!audioContext||audioContext.state!=='running'||v.length<24||v[0]!==1)return;
+              const format=v[1],interleaved=(v[2]&1)===1,channels=v[3],rate=u32(v,4),frames=u32(v,8),length=u32(v,20);
+              const bytes=format===2?2:4;
+              if(channels<1||channels>2||rate<8000||rate>192000||!frames||length!==frames*channels*bytes||v.length!==24+length)return;
+              const output=audioContext.createBuffer(channels,frames,rate);
+              const data=new DataView(v.buffer,v.byteOffset+24,length);
+              const readSample=o=>format===1?data.getFloat32(o,true):(format===2?data.getInt16(o,true)/32768:data.getInt32(o,true)/2147483648);
+              for(let channel=0;channel<channels;channel++){
+                const destination=output.getChannelData(channel);
+                for(let frame=0;frame<frames;frame++){
+                  const sampleIndex=interleaved?frame*channels+channel:channel*frames+frame;
+                  destination[frame]=readSample(sampleIndex*bytes);
+                }
+              }
+              const now=audioContext.currentTime;
+              if(audioAt<now+.025||audioAt>now+.30)audioAt=now+.055;
+              const source=audioContext.createBufferSource();
+              source.buffer=output;source.connect(audioContext.destination);source.start(audioAt);
+              audioAt+=frames/rate;
+            }
+            async function runAudio(){
+              if(audioLoopRunning)return;audioLoopRunning=true;
+              try{
+                const response=await fetch('/audio?k='+key+'&t='+Date.now(),{cache:'no-store'});
+                if(!response.ok||!response.body)throw new Error('Audio stream unavailable');
+                const reader=response.body.getReader();let data=new Uint8Array(0);
+                while(audioEnabled){
+                  const item=await reader.read();if(item.done)throw new Error('Audio stream ended');
+                  const joined=new Uint8Array(data.length+item.value.length);joined.set(data);joined.set(item.value,data.length);data=joined;
+                  let offset=0;
+                  while(data.length-offset>=24){
+                    const view=data.subarray(offset),length=u32(view,20);
+                    if(length>524288){offset=data.length;break}
+                    if(view.length<24+length)break;
+                    playAudio(view.slice(0,24+length));offset+=24+length;
+                  }
+                  if(offset)data=data.slice(offset);
+                }
+              }catch(_){}
+              audioLoopRunning=false;
+              if(audioEnabled)setTimeout(runAudio,700);
+            }
             stage.addEventListener('click',()=>{
+              if(!audioContext){
+                const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+                if(AudioContextClass)audioContext=new AudioContextClass({latencyHint:'interactive'});
+              }
+              if(audioContext){
+                audioContext.resume().then(()=>{
+                  audioEnabled=true;sound.style.display='none';runAudio();
+                }).catch(()=>{});
+              }else{
+                sound.textContent='Audio is unavailable in this browser';
+              }
               const request=stage.requestFullscreen||stage.webkitRequestFullscreen;
               if(request)Promise.resolve(request.call(stage)).catch(()=>{});
             });
@@ -569,6 +671,30 @@ private final class BrowserHTTPClient {
             let previous = self.streamKind
             self.streamKind = .h264
             self.onStreamingChange?(previous, .h264)
+            self.monitorDisconnect()
+        })
+    }
+
+    private func startAudioStream() {
+        let headers = BrowserHTTPWire.headerBlock([
+            "HTTP/1.1 200 OK",
+            "Content-Type: application/x-screen-share-pcm",
+            "Transfer-Encoding: chunked",
+            "Cache-Control: no-store, no-cache, must-revalidate",
+            "Pragma: no-cache",
+            "Referrer-Policy: no-referrer",
+            "X-Content-Type-Options: nosniff",
+            "Connection: keep-alive"
+        ])
+        connection.send(content: headers, completion: .contentProcessed { [weak self] error in
+            guard let self else { return }
+            if error != nil {
+                self.stop()
+                return
+            }
+            let previous = self.streamKind
+            self.streamKind = .audio
+            self.onStreamingChange?(previous, .audio)
             self.monitorDisconnect()
         })
     }

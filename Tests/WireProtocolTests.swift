@@ -117,6 +117,48 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(restored, original)
     }
 
+    func testAudioPCMFrameRoundTrip() throws {
+        var samples = Data()
+        for value: Float in [0, 0.25, -0.25, 1, -1, 0] {
+            var littleEndian = value.bitPattern.littleEndian
+            withUnsafeBytes(of: &littleEndian) { samples.append(contentsOf: $0) }
+        }
+        let original = try AudioPCMFrame(
+            format: .float32,
+            isInterleaved: true,
+            channelCount: 2,
+            sampleRate: 48_000,
+            frameCount: 3,
+            timestampMicroseconds: 123_456,
+            samples: samples
+        )
+
+        XCTAssertEqual(try AudioPCMFrame(encoded: original.encoded), original)
+    }
+
+    func testAudioPCMFrameRejectsTruncatedPayload() throws {
+        let frame = try AudioPCMFrame(
+            format: .int16,
+            isInterleaved: false,
+            channelCount: 1,
+            sampleRate: 44_100,
+            frameCount: 2,
+            timestampMicroseconds: 0,
+            samples: Data([0, 0, 1, 0])
+        )
+
+        XCTAssertThrowsError(try AudioPCMFrame(encoded: Data(frame.encoded.dropLast())))
+    }
+
+    func testAudioQueueIsStrictlyBounded() {
+        XCTAssertGreaterThan(AppConstants.maximumPendingAudioFrames, 0)
+        XCTAssertLessThanOrEqual(AppConstants.maximumPendingAudioFrames, 10)
+        XCTAssertLessThan(
+            AppConstants.maximumAudioFrameBytes,
+            AppConstants.maximumPacketBytes
+        )
+    }
+
     func testVideoConfigurationDecodesLegacyPayload() throws {
         let legacyJSON = """
         {
