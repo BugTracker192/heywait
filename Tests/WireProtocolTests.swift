@@ -230,7 +230,11 @@ final class WireProtocolTests: XCTestCase {
 
         XCTAssertEqual(url?.scheme, "http")
         XCTAssertEqual(url?.host, "192.168.1.23")
-        XCTAssertEqual(url?.port, Int(AppConstants.browserViewerPort))
+        XCTAssertEqual(url?.port, Int(AppConstants.browserBootstrapPort))
+        XCTAssertNotEqual(
+            AppConstants.browserBootstrapPort,
+            AppConstants.browserViewerPort
+        )
         XCTAssertEqual(
             URLComponents(url: try XCTUnwrap(url), resolvingAgainstBaseURL: false)?
                 .queryItems?
@@ -276,6 +280,8 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(manifest["display"] as? String, "standalone")
         XCTAssertEqual(manifest["orientation"] as? String, "any")
         XCTAssertEqual(manifest["start_url"] as? String, "/?k=23456789ABCDEFGH")
+        let icons = try XCTUnwrap(manifest["icons"] as? [[String: Any]])
+        XCTAssertEqual(icons.first?["src"] as? String, "/icon.png")
         XCTAssertTrue(BrowserWebApp.iconPNG.starts(with: [0x89, 0x50, 0x4E, 0x47]))
     }
 

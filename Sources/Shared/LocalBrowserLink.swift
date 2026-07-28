@@ -11,7 +11,7 @@ enum LocalBrowserLink {
         var components = URLComponents()
         components.scheme = "http"
         components.host = host
-        components.port = Int(AppConstants.browserViewerPort)
+        components.port = Int(AppConstants.browserBootstrapPort)
         components.path = "/"
         components.queryItems = [
             URLQueryItem(name: "k", value: PairingSecret.normalize(accessKey))

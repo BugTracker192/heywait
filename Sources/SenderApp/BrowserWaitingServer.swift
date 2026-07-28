@@ -13,7 +13,7 @@ final class BrowserWaitingServer {
             self.stopInternal()
             self.accessKey = PairingSecret.normalize(accessKey)
             guard PairingSecret.isValid(self.accessKey),
-                  let port = NWEndpoint.Port(rawValue: AppConstants.browserViewerPort) else {
+                  let port = NWEndpoint.Port(rawValue: AppConstants.browserBootstrapPort) else {
                 return
             }
 
@@ -141,8 +141,21 @@ private final class BrowserWaitingClient {
         let pieces = requestLine.split(separator: " ", maxSplits: 2).map(String.init)
         guard pieces.count == 3,
               pieces[0] == "GET",
-              let components = URLComponents(string: "http://screenshare.local\(pieces[1])"),
-              components.queryItems?.first(where: { $0.name == "k" })?.value == accessKey else {
+              let components = URLComponents(string: "http://screenshare.local\(pieces[1])") else {
+            respond(status: "400 Bad Request", body: "Bad request")
+            return
+        }
+        if ["/icon.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]
+            .contains(components.path) {
+            respond(
+                status: "200 OK",
+                contentType: "image/png",
+                data: BrowserWebApp.iconPNG,
+                cacheControl: "public, max-age=86400"
+            )
+            return
+        }
+        guard components.queryItems?.first(where: { $0.name == "k" })?.value == accessKey else {
             respond(status: "403 Forbidden", body: "Invalid or expired Screen Share link")
             return
         }
@@ -159,12 +172,6 @@ private final class BrowserWaitingClient {
                 status: "200 OK",
                 contentType: "application/manifest+json",
                 data: BrowserWebApp.manifest(accessKey: accessKey)
-            )
-        case "/icon.png", "/apple-touch-icon.png":
-            respond(
-                status: "200 OK",
-                contentType: "image/png",
-                data: BrowserWebApp.iconPNG
             )
         default:
             respond(status: "503 Service Unavailable", body: "Broadcast is not ready")
@@ -183,7 +190,8 @@ private final class BrowserWaitingClient {
           <meta name="application-name" content="Screen Share">
           <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
           <meta name="theme-color" content="#000000">
-          <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon.png?k=\(accessKey)">
+          <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon.png">
+          <link rel="apple-touch-icon-precomposed" href="/apple-touch-icon-precomposed.png">
           <link rel="manifest" href="/manifest.webmanifest?k=\(accessKey)">
           <title>Screen Share</title>
           <style>
@@ -196,12 +204,12 @@ private final class BrowserWaitingClient {
           <p><strong>Waiting for Screen Share...</strong>Start the broadcast on the sender. This page will connect automatically.</p>
           <script>
             const key='\(accessKey)';
-            async function probe(){
-              try{
-                const r=await fetch('/health?k='+key+'&t='+Date.now(),{cache:'no-store'});
-                if(r.ok){ location.reload(); return; }
-              }catch(_){}
-              setTimeout(probe,700);
+            const live='http://'+location.hostname+':\(AppConstants.browserViewerPort)';
+            function probe(){
+              const image=new Image();
+              image.onload=()=>location.replace(live+'/?k='+key);
+              image.onerror=()=>setTimeout(probe,500);
+              image.src=live+'/ready.png?k='+key+'&t='+Date.now();
             }
             probe();
           </script>
@@ -221,13 +229,14 @@ private final class BrowserWaitingClient {
     private func respond(
         status: String,
         contentType: String,
-        data: Data
+        data: Data,
+        cacheControl: String = "no-store"
     ) {
         var response = BrowserHTTPWire.headerBlock([
             "HTTP/1.1 \(status)",
             "Content-Type: \(contentType)",
             "Content-Length: \(data.count)",
-            "Cache-Control: no-store",
+            "Cache-Control: \(cacheControl)",
             "Referrer-Policy: no-referrer",
             "X-Content-Type-Options: nosniff",
             "Connection: close"

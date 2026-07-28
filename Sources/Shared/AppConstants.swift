@@ -12,7 +12,8 @@ enum AppConstants {
     static let maximumInFlightNetworkSends = 8
     static let allowsAutomaticPictureInPicture = false
     static let receiverBackgroundGraceSeconds: TimeInterval = 60
-    static let browserViewerPort: UInt16 = 49_373
+    static let browserBootstrapPort: UInt16 = 49_373
+    static let browserViewerPort: UInt16 = 49_374
     static let maximumBrowserClients = 4
 }
 

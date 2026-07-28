@@ -19,7 +19,7 @@ enum BrowserWebApp {
             "theme_color": "#000000",
             "icons": [
                 [
-                    "src": "/icon.png?k=\(key)",
+                    "src": "/icon.png",
                     "sizes": "512x512",
                     "type": "image/png",
                     "purpose": "any maskable"

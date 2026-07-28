@@ -76,8 +76,7 @@ final class SenderViewModel: ObservableObject {
         browserBootstrapWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self,
-                  self.deliveryMode == .browser,
-                  !UIScreen.main.isCaptured else {
+                  self.deliveryMode == .browser else {
                 return
             }
             self.browserWaitingServer.start(accessKey: self.browserAccessKey)
@@ -172,9 +171,9 @@ struct SenderRootView: View {
             case .inactive, .background:
                 model.stopBrowserBootstrap()
             case .active:
-                // Give the ReplayKit extension first chance to bind the live
-                // stream port after the system broadcast sheet closes.
-                model.startBrowserBootstrap(after: 4)
+                // The setup and live listeners use different ports, so the QR
+                // page can remain reachable while ReplayKit owns the live port.
+                model.startBrowserBootstrap()
             @unknown default:
                 break
             }

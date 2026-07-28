@@ -333,6 +333,20 @@ private final class BrowserHTTPClient {
         }
     }
 
+    private func monitorDisconnect() {
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 1
+        ) { [weak self] _, _, isComplete, error in
+            guard let self, !self.stopped else { return }
+            if isComplete || error != nil {
+                self.stop()
+            } else {
+                self.monitorDisconnect()
+            }
+        }
+    }
+
     private func handleRequest() {
         guard let text = String(data: request, encoding: .utf8),
               let requestLine = text.components(separatedBy: "\r\n").first else {
@@ -341,8 +355,21 @@ private final class BrowserHTTPClient {
         }
         let pieces = requestLine.split(separator: " ", maxSplits: 2).map(String.init)
         guard pieces.count == 3, pieces[0] == "GET",
-              let components = URLComponents(string: "http://screenshare.local\(pieces[1])"),
-              components.queryItems?.first(where: { $0.name == "k" })?.value == accessKey else {
+              let components = URLComponents(string: "http://screenshare.local\(pieces[1])") else {
+            sendStatus(400, reason: "Bad Request")
+            return
+        }
+        if ["/icon.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]
+            .contains(components.path) {
+            sendData(
+                BrowserWebApp.iconPNG,
+                status: "200 OK",
+                contentType: "image/png",
+                cacheControl: "public, max-age=86400"
+            )
+            return
+        }
+        guard components.queryItems?.first(where: { $0.name == "k" })?.value == accessKey else {
             sendStatus(403, reason: "Forbidden")
             return
         }
@@ -360,17 +387,17 @@ private final class BrowserHTTPClient {
                 status: "200 OK",
                 contentType: "application/manifest+json"
             )
-        case "/icon.png", "/apple-touch-icon.png":
-            sendData(
-                BrowserWebApp.iconPNG,
-                status: "200 OK",
-                contentType: "image/png"
-            )
         case "/health":
             sendData(
                 Data(#"{"status":"ok"}"#.utf8),
                 status: "200 OK",
                 contentType: "application/json"
+            )
+        case "/ready.png":
+            sendData(
+                BrowserWebApp.iconPNG,
+                status: "200 OK",
+                contentType: "image/png"
             )
         default:
             sendStatus(404, reason: "Not Found")
@@ -389,7 +416,8 @@ private final class BrowserHTTPClient {
           <meta name="application-name" content="Screen Share">
           <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
           <meta name="theme-color" content="#000000">
-          <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon.png?k=\(accessKey)">
+          <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon.png">
+          <link rel="apple-touch-icon-precomposed" href="/apple-touch-icon-precomposed.png">
           <link rel="manifest" href="/manifest.webmanifest?k=\(accessKey)">
           <title>Screen Share</title>
           <style>
@@ -516,6 +544,7 @@ private final class BrowserHTTPClient {
             let previous = self.streamKind
             self.streamKind = .mjpeg
             self.onStreamingChange?(previous, .mjpeg)
+            self.monitorDisconnect()
         })
     }
 
@@ -540,6 +569,7 @@ private final class BrowserHTTPClient {
             let previous = self.streamKind
             self.streamKind = .h264
             self.onStreamingChange?(previous, .h264)
+            self.monitorDisconnect()
         })
     }
 
@@ -551,12 +581,17 @@ private final class BrowserHTTPClient {
         )
     }
 
-    private func sendData(_ data: Data, status: String, contentType: String) {
+    private func sendData(
+        _ data: Data,
+        status: String,
+        contentType: String,
+        cacheControl: String = "no-store"
+    ) {
         var response = BrowserHTTPWire.headerBlock([
             "HTTP/1.1 \(status)",
             "Content-Type: \(contentType)",
             "Content-Length: \(data.count)",
-            "Cache-Control: no-store",
+            "Cache-Control: \(cacheControl)",
             "Referrer-Policy: no-referrer",
             "X-Content-Type-Options: nosniff",
             "Connection: close"
