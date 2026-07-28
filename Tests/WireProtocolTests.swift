@@ -315,11 +315,7 @@ final class WireProtocolTests: XCTestCase {
 
         XCTAssertEqual(url?.scheme, "http")
         XCTAssertEqual(url?.host, "192.168.1.23")
-        XCTAssertEqual(url?.port, Int(AppConstants.browserBootstrapPort))
-        XCTAssertNotEqual(
-            AppConstants.browserBootstrapPort,
-            AppConstants.browserViewerPort
-        )
+        XCTAssertEqual(url?.port, Int(AppConstants.browserViewerPort))
         XCTAssertEqual(
             URLComponents(url: try XCTUnwrap(url), resolvingAgainstBaseURL: false)?
                 .queryItems?
@@ -407,7 +403,7 @@ final class WireProtocolTests: XCTestCase {
                 encodedHeight: 1_440,
                 videoOrientation: 6
             ),
-            .landscapeLeft
+            .landscape
         )
         XCTAssertEqual(
             ReceiverOrientationCoordinator.interfaceOrientations(
@@ -415,7 +411,7 @@ final class WireProtocolTests: XCTestCase {
                 encodedHeight: 1_440,
                 videoOrientation: 8
             ),
-            .landscapeRight
+            .landscape
         )
         XCTAssertEqual(
             ReceiverOrientationCoordinator.interfaceOrientations(

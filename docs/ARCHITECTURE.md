@@ -6,9 +6,9 @@
 
 The sender app is a SwiftUI configuration surface. It stores the selected delivery mode and quality preset in `group.dev.screenshare.sender`, explicitly synchronizes that cross-process domain, then presents Apple's `RPSystemBroadcastPickerView`. Native mode also stores the selected Bonjour receiver and pairing code. Browser mode stores a random access key and shows a QR/local URL derived from the sender's Wi-Fi address.
 
-While Browser setup is foregrounded, Sender serves a black waiting page on bootstrap port `49373`. JavaScript on that page probes the access-key-protected readiness image on live port `49374` and redirects there as soon as ReplayKit starts the extension. Keeping setup and live traffic on different ports removes the listener handoff race that could otherwise leave a valid broadcast stuck on the waiting page.
+In Browser mode, the private QR points directly to the ReplayKit extension on port `49374`. The viewer is opened after the broadcast countdown completes. No foreground-app bootstrap listener is used because iOS may suspend the Sender app during the broadcast sheet or immediately after switching to the streamed app.
 
-Both setup and live servers expose the same neutral `Screen Share` web-app manifest and PNG icon. The manifest preserves the access key in its installed start URL. Only the neutral icon routes are public so iOS can fetch an Add-to-Home-Screen icon after dropping the URL query; setup, readiness, viewer, and stream routes remain key-protected. Keys are generated independently per Sender installation and remain stable until the user explicitly rotates the private link.
+The live server exposes the neutral `Screen Share` web-app manifest and PNG icon. The manifest preserves the access key in its installed start URL. Only the neutral icon routes are public so iOS can fetch an Add-to-Home-Screen icon after dropping the URL query; readiness, viewer, and stream routes remain key-protected. Keys are generated independently per Sender installation and remain stable until the user explicitly rotates the private link.
 
 ### Broadcast Upload Extension
 

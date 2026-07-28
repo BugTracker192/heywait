@@ -48,9 +48,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-In Browser mode, the Sender setup page listens on TCP port `49373` and the ReplayKit extension owns the separate live-stream port `49374`. Both require the random access key embedded in the generated URL. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs; this removes the per-frame JPEG bottleneck and targets 60 FPS for Balanced/Sharp. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream. Native and Browser modes remain mutually exclusive per broadcast. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
-
-The Sender app serves a black waiting page from the setup port while foregrounded. That page probes a key-protected readiness image on the live port and redirects with the private key as soon as the broadcast extension is ready. Separate ports eliminate the listener handoff race that could leave the browser permanently on “Waiting for Screen Share.” Sender also explicitly synchronizes App Group preferences before launch so the separate extension process cannot read the previous delivery mode.
+In Browser mode, the ReplayKit extension owns live-stream TCP port `49374`; the private QR/link points directly to it. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream. Native and Browser modes remain mutually exclusive per broadcast. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
 
 Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
@@ -116,9 +114,9 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 
 1. Put the sender and viewing device on the same Wi-Fi network.
 2. In Sender, select **Browser**.
-3. Copy or scan the private URL, choose quality, and tap **Save browser mode**. Opening it before the broadcast shows a black waiting page.
-4. Start the Screen Share broadcast from the same sender screen.
-5. The waiting page automatically hands over to the live extension. If the link was not already open, open it now in Safari, Chrome, Firefox, or another browser.
+3. Choose quality and tap **Save browser mode**.
+4. Start the Screen Share broadcast and wait for the iOS countdown to finish.
+5. Now scan the QR or open the private URL in Safari, Chrome, Firefox, or another browser. The live extension must already be running when the browser opens the link.
 6. Tap the video once to enable sound and request fullscreen where the browser supports it. Browsers require this one user gesture before a page may play audio.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.

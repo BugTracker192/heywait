@@ -15,9 +15,7 @@ final class SenderViewModel: ObservableObject {
     @Published private(set) var didSave: Bool
 
     let discovery = ReceiverDiscovery()
-    private let browserWaitingServer = BrowserWaitingServer()
     private var cancellables: Set<AnyCancellable> = []
-    private var browserBootstrapWorkItem: DispatchWorkItem?
 
     init() {
         let saved = SenderConfigurationStore.shared.load()
@@ -69,26 +67,6 @@ final class SenderViewModel: ObservableObject {
     func regenerateBrowserLink() {
         browserAccessKey = PairingSecret.normalize(PairingSecret.generate())
         didSave = false
-        startBrowserBootstrap()
-    }
-
-    func startBrowserBootstrap(after delay: TimeInterval = 0) {
-        browserBootstrapWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self,
-                  self.deliveryMode == .browser else {
-                return
-            }
-            self.browserWaitingServer.start(accessKey: self.browserAccessKey)
-        }
-        browserBootstrapWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-    }
-
-    func stopBrowserBootstrap() {
-        browserBootstrapWorkItem?.cancel()
-        browserBootstrapWorkItem = nil
-        browserWaitingServer.stop()
     }
 
     func save() {
@@ -97,19 +75,10 @@ final class SenderViewModel: ObservableObject {
         browserAccessKey = PairingSecret.normalize(browserAccessKey)
         SenderConfigurationStore.shared.save(configuration)
         didSave = true
-        if deliveryMode == .browser {
-            startBrowserBootstrap()
-        }
-    }
-
-    deinit {
-        browserBootstrapWorkItem?.cancel()
-        browserWaitingServer.stop()
     }
 }
 
 struct SenderRootView: View {
-    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = SenderViewModel()
 
     var body: some View {
@@ -146,40 +115,21 @@ struct SenderRootView: View {
         .onAppear {
             if model.deliveryMode == .nativeReceiver {
                 model.discovery.start()
-            } else {
-                model.startBrowserBootstrap()
             }
         }
         .onDisappear {
             model.discovery.stop()
-            model.stopBrowserBootstrap()
         }
         .onChange(of: model.deliveryMode) { mode in
             model.markDirty()
             if mode == .nativeReceiver {
-                model.stopBrowserBootstrap()
                 model.discovery.start()
             } else {
                 model.discovery.stop()
-                model.startBrowserBootstrap()
             }
         }
         .onChange(of: model.pairingCode) { _ in model.markDirty() }
         .onChange(of: model.quality) { _ in model.markDirty() }
-        .onChange(of: scenePhase) { phase in
-            switch phase {
-            case .active:
-                // The setup and live listeners use different ports, so the QR
-                // page can remain reachable while ReplayKit owns the live port.
-                model.startBrowserBootstrap()
-            case .inactive, .background:
-                // Do not cancel an in-flight QR request while the broadcast
-                // sheet moves the app through inactive/background states.
-                break
-            @unknown default:
-                break
-            }
-        }
     }
 
     private var header: some View {
@@ -324,7 +274,7 @@ struct SenderRootView: View {
                     .font(.caption)
 
                     Text(
-                        "You can scan this now. The browser waits on a black page, then connects automatically after the broadcast starts. Add it to the Home Screen for the standalone viewer."
+                        "Save Browser mode and start the broadcast first. Once the iOS sheet says it is live, scan this QR or open the link. Add it to the Home Screen for the standalone viewer."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

@@ -61,19 +61,11 @@ final class ReceiverOrientationCoordinator {
         let displayHeight = isQuarterTurn ? encodedWidth : encodedHeight
         guard displayWidth > displayHeight else { return .portrait }
 
-        // ReplayKit uses CGImagePropertyOrientation raw values. A `.right`
-        // image (6) needs a clockwise correction, which corresponds to a
-        // UIKit landscape-left interface; `.left` (8) is the opposite side.
-        // Requesting the generic `.landscape` mask lets iOS choose either
-        // side and can put the viewer 180 degrees opposite the sender.
-        switch videoOrientation {
-        case 5, 6:
-            return .landscapeLeft
-        case 7, 8:
-            return .landscapeRight
-        default:
-            return .landscape
-        }
+        // Request both landscape sides. Restricting the scene to one exact
+        // side can be rejected while the receiving phone is physically held
+        // on the other side, leaving the whole app stuck in portrait. The
+        // video layer still applies ReplayKit's exact EXIF transform.
+        return .landscape
     }
 
     private func applyCurrentGeometry() {
