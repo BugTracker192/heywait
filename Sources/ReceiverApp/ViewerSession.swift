@@ -144,6 +144,7 @@ final class ViewerSession: ObservableObject {
         if !pausedForBackground {
             pausedForBackground = true
             server.stop()
+            audio.reset()
         }
         endBackgroundTaskIfNeeded()
     }

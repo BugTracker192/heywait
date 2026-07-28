@@ -159,6 +159,10 @@ final class WireProtocolTests: XCTestCase {
         )
     }
 
+    func testAudioCapableNativeProtocolUsesVersionTwo() {
+        XCTAssertEqual(AppConstants.protocolVersion, 2)
+    }
+
     func testVideoConfigurationDecodesLegacyPayload() throws {
         let legacyJSON = """
         {

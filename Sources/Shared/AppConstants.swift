@@ -1,7 +1,7 @@
 import Foundation
 
 enum AppConstants {
-    static let protocolVersion: UInt8 = 1
+    static let protocolVersion: UInt8 = 2
     static let serviceType = "_screenshare._tcp"
     static let serviceDomain = "local."
     static let appGroup = "group.dev.screenshare.sender"
