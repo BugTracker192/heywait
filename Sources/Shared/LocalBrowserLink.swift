@@ -11,10 +11,9 @@ enum LocalBrowserLink {
         var components = URLComponents()
         components.scheme = "http"
         components.host = host
-        // The ReplayKit extension owns the live viewer. Point the QR straight
-        // at that process instead of a temporary listener in the Sender app:
-        // iOS suspends the containing app while the broadcast sheet/game is
-        // active, which made an otherwise valid link turn white and time out.
+        // Port 49373 is the path proven reachable by the original browser
+        // viewer on the target devices. The fresh v2 ReplayKit extension owns
+        // it directly while broadcasting.
         components.port = Int(AppConstants.browserViewerPort)
         components.path = "/"
         components.queryItems = [

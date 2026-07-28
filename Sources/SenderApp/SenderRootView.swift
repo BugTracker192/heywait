@@ -384,13 +384,28 @@ struct SenderRootView: View {
     }
 
     private var privacyNote: some View {
-        Label(
-            "Screen Share never uses a cloud relay. iOS displays its standard capture indicator while your screen is being shared.",
-            systemImage: "hand.raised.fill"
-        )
+        VStack(spacing: 8) {
+            Label(
+                "Screen Share never uses a cloud relay. iOS displays its standard capture indicator while your screen is being shared.",
+                systemImage: "hand.raised.fill"
+            )
+            Text(buildLabel)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+        }
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 6)
+    }
+
+    private var buildLabel: String {
+        let version = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "?"
+        let build = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String ?? "?"
+        return "v\(version) (\(build)) · browser port \(AppConstants.browserViewerPort)"
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {

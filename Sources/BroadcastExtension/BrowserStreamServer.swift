@@ -14,9 +14,8 @@ final class BrowserStreamServer {
     private let accessKey: String
     private let queue = DispatchQueue(label: "dev.screenshare.browser.http", qos: .userInteractive)
     private let clientCountLock = NSLock()
-    private var listeners: [UInt16: NWListener] = [:]
-    private var listenerWaitingFailures: [UInt16: DispatchWorkItem] = [:]
-    private var failedListenerPorts: Set<UInt16> = []
+    private var listener: NWListener?
+    private var listenerWaitingFailure: DispatchWorkItem?
     private var clients: [ObjectIdentifier: BrowserHTTPClient] = [:]
     private var streamingClientCount = 0
     private var h264ClientCount = 0
@@ -50,16 +49,11 @@ final class BrowserStreamServer {
             guard let self else { return }
             self.stopInternal()
 
-            for port in [
-                AppConstants.browserViewerPort,
-                AppConstants.browserLegacyViewerPort
-            ] {
-                self.startListener(on: port)
-            }
+            self.startListener()
         }
     }
 
-    private func startListener(on rawPort: UInt16) {
+    private func startListener() {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         tcp.enableKeepalive = true
@@ -68,42 +62,41 @@ final class BrowserStreamServer {
         parameters.serviceClass = .interactiveVideo
 
         do {
-            guard let port = NWEndpoint.Port(rawValue: rawPort) else {
-                markListenerFailed(rawPort, message: "The browser viewer port is invalid.")
+            guard let port = NWEndpoint.Port(rawValue: AppConstants.browserViewerPort) else {
+                fail("The browser viewer port is invalid.")
                 return
             }
             let listener = try NWListener(using: parameters, on: port)
-            listeners[rawPort] = listener
+            self.listener = listener
             listener.stateUpdateHandler = { [weak self, weak listener] state in
                 guard let self,
                       let listener,
-                      listener === self.listeners[rawPort] else {
+                      listener === self.listener else {
                     return
                 }
                 switch state {
                 case .waiting(let error):
-                    self.listenerWaitingFailures[rawPort]?.cancel()
+                    self.listenerWaitingFailure?.cancel()
                     let failure = DispatchWorkItem { [weak self, weak listener] in
                         guard let self,
                               let listener,
-                              listener === self.listeners[rawPort] else {
+                              listener === self.listener else {
                             return
                         }
-                        self.markListenerFailed(
-                            rawPort,
-                            message: "Browser viewer port \(rawPort) is waiting: \(error.localizedDescription)"
+                        self.fail(
+                            "Browser viewer port \(AppConstants.browserViewerPort) is waiting: \(error.localizedDescription)"
                         )
                     }
-                    self.listenerWaitingFailures[rawPort] = failure
+                    self.listenerWaitingFailure = failure
                     self.queue.asyncAfter(deadline: .now() + 4, execute: failure)
                 case .ready:
-                    self.listenerWaitingFailures.removeValue(forKey: rawPort)?.cancel()
-                    self.failedListenerPorts.remove(rawPort)
+                    self.listenerWaitingFailure?.cancel()
+                    self.listenerWaitingFailure = nil
                 case .failed(let error):
-                    self.listenerWaitingFailures.removeValue(forKey: rawPort)?.cancel()
-                    self.markListenerFailed(
-                        rawPort,
-                        message: "Browser viewer port \(rawPort) failed: \(error.localizedDescription)"
+                    self.listenerWaitingFailure?.cancel()
+                    self.listenerWaitingFailure = nil
+                    self.fail(
+                        "Browser viewer port \(AppConstants.browserViewerPort) failed: \(error.localizedDescription)"
                     )
                 default:
                     break
@@ -114,17 +107,9 @@ final class BrowserStreamServer {
             }
             listener.start(queue: queue)
         } catch {
-            markListenerFailed(
-                rawPort,
-                message: "Browser viewer port \(rawPort) could not start: \(error.localizedDescription)"
+            fail(
+                "Browser viewer port \(AppConstants.browserViewerPort) could not start: \(error.localizedDescription)"
             )
-        }
-    }
-
-    private func markListenerFailed(_ port: UInt16, message: String) {
-        failedListenerPorts.insert(port)
-        if failedListenerPorts.count == 2 {
-            fail(message)
         }
     }
 
@@ -171,7 +156,16 @@ final class BrowserStreamServer {
         let client = BrowserHTTPClient(
             connection: connection,
             queue: queue,
-            accessKey: accessKey
+            isAuthorized: { [weak self] candidate in
+                guard let self else { return false }
+                if candidate == self.accessKey {
+                    return true
+                }
+                let current = PairingSecret.normalize(
+                    SenderConfigurationStore.shared.load().browserAccessKey
+                )
+                return candidate == current
+            }
         )
         let identifier = ObjectIdentifier(client)
         clients[identifier] = client
@@ -224,16 +218,11 @@ final class BrowserStreamServer {
     }
 
     private func stopInternal() {
-        for workItem in listenerWaitingFailures.values {
-            workItem.cancel()
-        }
-        listenerWaitingFailures.removeAll()
-        failedListenerPorts.removeAll()
-        for listener in listeners.values {
-            listener.stateUpdateHandler = nil
-            listener.cancel()
-        }
-        listeners.removeAll()
+        listenerWaitingFailure?.cancel()
+        listenerWaitingFailure = nil
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        listener = nil
         for client in Array(clients.values) {
             client.stop()
         }
@@ -254,7 +243,7 @@ private final class BrowserHTTPClient {
 
     private let connection: NWConnection
     private let queue: DispatchQueue
-    private let accessKey: String
+    private let isAuthorized: (String) -> Bool
     private var request = Data()
     private var stopped = false
     private var sendPending = false
@@ -265,10 +254,14 @@ private final class BrowserHTTPClient {
     private var isAwaitingH264KeyFrame = true
     private(set) var streamKind: BrowserStreamKind?
 
-    init(connection: NWConnection, queue: DispatchQueue, accessKey: String) {
+    init(
+        connection: NWConnection,
+        queue: DispatchQueue,
+        isAuthorized: @escaping (String) -> Bool
+    ) {
         self.connection = connection
         self.queue = queue
-        self.accessKey = accessKey
+        self.isAuthorized = isAuthorized
     }
 
     func start() {
@@ -445,14 +438,17 @@ private final class BrowserHTTPClient {
             )
             return
         }
-        guard components.queryItems?.first(where: { $0.name == "k" })?.value == accessKey else {
-            sendStatus(403, reason: "Forbidden")
+        let suppliedKey = PairingSecret.normalize(
+            components.queryItems?.first(where: { $0.name == "k" })?.value ?? ""
+        )
+        guard PairingSecret.isValid(suppliedKey), isAuthorized(suppliedKey) else {
+            sendAuthorizationFailure()
             return
         }
 
         switch components.path {
         case "/":
-            sendHTML()
+            sendHTML(accessKey: suppliedKey)
         case "/stream":
             startMJPEGStream()
         case "/h264":
@@ -461,7 +457,7 @@ private final class BrowserHTTPClient {
             startAudioStream()
         case "/manifest.webmanifest":
             sendData(
-                BrowserWebApp.manifest(accessKey: accessKey),
+                BrowserWebApp.manifest(accessKey: suppliedKey),
                 status: "200 OK",
                 contentType: "application/manifest+json"
             )
@@ -482,7 +478,7 @@ private final class BrowserHTTPClient {
         }
     }
 
-    private func sendHTML() {
+    private func sendHTML(accessKey: String) {
         let page = """
         <!doctype html>
         <html>
@@ -737,6 +733,31 @@ private final class BrowserHTTPClient {
             Data("\(code) \(reason)".utf8),
             status: "\(code) \(reason)",
             contentType: "text/plain; charset=utf-8"
+        )
+    }
+
+    private func sendAuthorizationFailure() {
+        let page = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <meta name="theme-color" content="#08131d">
+          <title>Screen Share link expired</title>
+          <style>
+            html,body{height:100%;margin:0;background:#08131d;color:#fff;font:17px -apple-system,sans-serif}
+            body{display:grid;place-items:center;text-align:center;padding:28px;box-sizing:border-box}
+            strong{display:block;font-size:24px;margin-bottom:12px}
+            p{max-width:420px;color:#b7c5cf;line-height:1.45}
+          </style>
+        </head>
+        <body><div><strong>Screen Share link expired</strong><p>Return to Screen Share Sender, open Browser mode, save it, and scan the current QR again.</p></div></body>
+        </html>
+        """
+        sendData(
+            Data(page.utf8),
+            status: "403 Forbidden",
+            contentType: "text/html; charset=utf-8"
         )
     }
 

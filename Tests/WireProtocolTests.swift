@@ -308,6 +308,10 @@ final class WireProtocolTests: XCTestCase {
     }
 
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
+        XCTAssertEqual(
+            AppConstants.broadcastBundleIdentifier,
+            "dev.screenshare.sender.broadcast.v2"
+        )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
             accessKey: "2345-6789-ABCD-EFGH"
@@ -316,6 +320,7 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(url?.scheme, "http")
         XCTAssertEqual(url?.host, "192.168.1.23")
         XCTAssertEqual(url?.port, Int(AppConstants.browserViewerPort))
+        XCTAssertEqual(AppConstants.browserViewerPort, 49_373)
         XCTAssertEqual(
             URLComponents(url: try XCTUnwrap(url), resolvingAgainstBaseURL: false)?
                 .queryItems?
