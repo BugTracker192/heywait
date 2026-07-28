@@ -6,9 +6,9 @@
 
 The sender app is a SwiftUI configuration surface. It stores the selected delivery mode and quality preset in `group.dev.screenshare.sender`, explicitly synchronizes that cross-process domain, then presents Apple's `RPSystemBroadcastPickerView`. Native mode also stores the selected Bonjour receiver and pairing code. Browser mode stores a random access key and shows a QR/local URL derived from the sender's Wi-Fi address.
 
-While Browser setup is foregrounded, Sender temporarily serves a black waiting page on the generated URL. It releases the listener when the app resigns active for the broadcast sheet. JavaScript on that already-loaded page retries the health endpoint until the extension binds the same port, then reloads into the live viewer.
+While Browser setup is foregrounded, Sender serves a black waiting page on bootstrap port `49373`. JavaScript on that page probes the access-key-protected readiness image on live port `49374` and redirects there as soon as ReplayKit starts the extension. Keeping setup and live traffic on different ports removes the listener handoff race that could otherwise leave a valid broadcast stuck on the waiting page.
 
-Both temporary and live servers expose the same neutral `Screen Share` web-app manifest and PNG icon. The manifest preserves the access key in its installed start URL. Keys are generated independently per Sender installation and remain stable until the user explicitly rotates the private link.
+Both setup and live servers expose the same neutral `Screen Share` web-app manifest and PNG icon. The manifest preserves the access key in its installed start URL. Only the neutral icon routes are public so iOS can fetch an Add-to-Home-Screen icon after dropping the URL query; setup, readiness, viewer, and stream routes remain key-protected. Keys are generated independently per Sender installation and remain stable until the user explicitly rotates the private link.
 
 ### Broadcast Upload Extension
 
@@ -23,7 +23,7 @@ ReplayKit starts `SampleHandler` outside the sender app. In native mode, the han
 
 The extension remains the capture owner when the sender app is no longer frontmost.
 
-In Browser mode, the handler starts a fixed-port `NWListener` instead of receiver discovery. Authorized HTTP clients receive a minimal fullscreen page and a bounded multipart MJPEG stream. JPEG encoding runs on a serial worker, drops incoming capture samples while that worker is busy, and each browser keeps at most one network send outstanding. This prevents a slow browser from growing the ReplayKit extension's memory.
+In Browser mode, the handler starts a fixed `NWListener` on live port `49374` instead of receiver discovery. Authorized current browsers receive a bounded hardware-H.264 stream decoded with WebCodecs. A client-side compatibility path falls back to multipart MJPEG when WebCodecs or the H.264 decoder is unavailable. JPEG encoding runs on a serial worker, drops incoming capture samples while that worker is busy, and each browser keeps at most one network send outstanding. The server also monitors streaming sockets for disconnects so a failed H.264 attempt cannot remain counted and starve its MJPEG fallback. These bounds prevent a slow browser from growing the ReplayKit extension's memory.
 
 ### Receiver app
 

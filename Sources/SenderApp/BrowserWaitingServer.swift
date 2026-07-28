@@ -36,7 +36,7 @@ final class BrowserWaitingServer {
                 }
                 listener.start(queue: self.queue)
             } catch {
-                // The ReplayKit extension may already own the port.
+                // Another setup listener may still be winding down.
             }
         }
     }
