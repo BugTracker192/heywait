@@ -14,8 +14,9 @@ final class BrowserStreamServer {
     private let accessKey: String
     private let queue = DispatchQueue(label: "dev.screenshare.browser.http", qos: .userInteractive)
     private let clientCountLock = NSLock()
-    private var listener: NWListener?
-    private var listenerWaitingFailure: DispatchWorkItem?
+    private var listeners: [UInt16: NWListener] = [:]
+    private var listenerWaitingFailures: [UInt16: DispatchWorkItem] = [:]
+    private var failedListenerPorts: Set<UInt16> = []
     private var clients: [ObjectIdentifier: BrowserHTTPClient] = [:]
     private var streamingClientCount = 0
     private var h264ClientCount = 0
@@ -49,54 +50,81 @@ final class BrowserStreamServer {
             guard let self else { return }
             self.stopInternal()
 
-            let tcp = NWProtocolTCP.Options()
-            tcp.noDelay = true
-            tcp.enableKeepalive = true
-            let parameters = NWParameters(tls: nil, tcp: tcp)
-            parameters.includePeerToPeer = true
-            parameters.serviceClass = .interactiveVideo
+            for port in [
+                AppConstants.browserViewerPort,
+                AppConstants.browserLegacyViewerPort
+            ] {
+                self.startListener(on: port)
+            }
+        }
+    }
 
-            do {
-                guard let port = NWEndpoint.Port(rawValue: AppConstants.browserViewerPort) else {
-                    self.fail("The browser viewer port is invalid.")
+    private func startListener(on rawPort: UInt16) {
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        tcp.enableKeepalive = true
+        let parameters = NWParameters(tls: nil, tcp: tcp)
+        parameters.includePeerToPeer = true
+        parameters.serviceClass = .interactiveVideo
+
+        do {
+            guard let port = NWEndpoint.Port(rawValue: rawPort) else {
+                markListenerFailed(rawPort, message: "The browser viewer port is invalid.")
+                return
+            }
+            let listener = try NWListener(using: parameters, on: port)
+            listeners[rawPort] = listener
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                guard let self,
+                      let listener,
+                      listener === self.listeners[rawPort] else {
                     return
                 }
-                let listener = try NWListener(using: parameters, on: port)
-                self.listener = listener
-                listener.stateUpdateHandler = { [weak self, weak listener] state in
-                    guard let self, let listener, listener === self.listener else { return }
-                    switch state {
-                    case .waiting(let error):
-                        // The containing app may still be releasing the waiting
-                        // page listener. NWListener can recover from this state,
-                        // so allow the port handoff a short grace period.
-                        self.listenerWaitingFailure?.cancel()
-                        let failure = DispatchWorkItem { [weak self, weak listener] in
-                            guard let self, let listener, listener === self.listener else { return }
-                            self.fail(
-                                "Browser viewer is waiting for the local network: \(error.localizedDescription)"
-                            )
+                switch state {
+                case .waiting(let error):
+                    self.listenerWaitingFailures[rawPort]?.cancel()
+                    let failure = DispatchWorkItem { [weak self, weak listener] in
+                        guard let self,
+                              let listener,
+                              listener === self.listeners[rawPort] else {
+                            return
                         }
-                        self.listenerWaitingFailure = failure
-                        self.queue.asyncAfter(deadline: .now() + 4, execute: failure)
-                    case .ready:
-                        self.listenerWaitingFailure?.cancel()
-                        self.listenerWaitingFailure = nil
-                    case .failed(let error):
-                        self.listenerWaitingFailure?.cancel()
-                        self.listenerWaitingFailure = nil
-                        self.fail("Browser viewer could not start: \(error.localizedDescription)")
-                    default:
-                        break
+                        self.markListenerFailed(
+                            rawPort,
+                            message: "Browser viewer port \(rawPort) is waiting: \(error.localizedDescription)"
+                        )
                     }
+                    self.listenerWaitingFailures[rawPort] = failure
+                    self.queue.asyncAfter(deadline: .now() + 4, execute: failure)
+                case .ready:
+                    self.listenerWaitingFailures.removeValue(forKey: rawPort)?.cancel()
+                    self.failedListenerPorts.remove(rawPort)
+                case .failed(let error):
+                    self.listenerWaitingFailures.removeValue(forKey: rawPort)?.cancel()
+                    self.markListenerFailed(
+                        rawPort,
+                        message: "Browser viewer port \(rawPort) failed: \(error.localizedDescription)"
+                    )
+                default:
+                    break
                 }
-                listener.newConnectionHandler = { [weak self] connection in
-                    self?.accept(connection)
-                }
-                listener.start(queue: self.queue)
-            } catch {
-                self.fail("Browser viewer could not start: \(error.localizedDescription)")
             }
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.accept(connection)
+            }
+            listener.start(queue: queue)
+        } catch {
+            markListenerFailed(
+                rawPort,
+                message: "Browser viewer port \(rawPort) could not start: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func markListenerFailed(_ port: UInt16, message: String) {
+        failedListenerPorts.insert(port)
+        if failedListenerPorts.count == 2 {
+            fail(message)
         }
     }
 
@@ -196,11 +224,16 @@ final class BrowserStreamServer {
     }
 
     private func stopInternal() {
-        listenerWaitingFailure?.cancel()
-        listenerWaitingFailure = nil
-        listener?.stateUpdateHandler = nil
-        listener?.cancel()
-        listener = nil
+        for workItem in listenerWaitingFailures.values {
+            workItem.cancel()
+        }
+        listenerWaitingFailures.removeAll()
+        failedListenerPorts.removeAll()
+        for listener in listeners.values {
+            listener.stateUpdateHandler = nil
+            listener.cancel()
+        }
+        listeners.removeAll()
         for client in Array(clients.values) {
             client.stop()
         }

@@ -423,6 +423,30 @@ final class WireProtocolTests: XCTestCase {
         )
     }
 
+    func testRemoteLandscapeGeometryTracksReplayKitSideWithoutRestrictingSupport() {
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.geometryOrientations(
+                supported: .landscape,
+                videoOrientation: 6
+            ),
+            .landscapeLeft
+        )
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.geometryOrientations(
+                supported: .landscape,
+                videoOrientation: 8
+            ),
+            .landscapeRight
+        )
+        XCTAssertEqual(
+            ReceiverOrientationCoordinator.geometryOrientations(
+                supported: .portrait,
+                videoOrientation: 8
+            ),
+            .portrait
+        )
+    }
+
     private func floatSample(in data: Data, at index: Int) -> Float {
         let raw = data.withUnsafeBytes {
             $0.loadUnaligned(fromByteOffset: index * 4, as: UInt32.self)

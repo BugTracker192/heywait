@@ -74,6 +74,7 @@ If the extension is terminated under memory pressure, lower the sharp preset bit
 
 - Select Browser, save, and verify the QR and copied URL contain the sender's current Wi-Fi IPv4 address, live port `49374`, and a random access key.
 - Start the broadcast and wait for the ReplayKit countdown to finish. Then open the link and verify the live viewer loads directly.
+- Start a native Receiver App broadcast and verify the same private browser link also loads; verify an older saved link using compatibility port `49373` loads while the broadcast is live.
 - Verify Safari never reports **cannot parse response** when loading the viewer, manifest, icon, health endpoint, or live MJPEG stream.
 - Add the live page to the Home Screen; verify it is named **Screen Share**, uses the neutral Screen Share icon rather than an initial-letter fallback, and reopens with the private key while a broadcast is active.
 - Start the broadcast and open the URL from Safari and at least one other browser on the same LAN.

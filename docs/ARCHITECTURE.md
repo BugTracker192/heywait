@@ -6,7 +6,7 @@
 
 The sender app is a SwiftUI configuration surface. It stores the selected delivery mode and quality preset in `group.dev.screenshare.sender`, explicitly synchronizes that cross-process domain, then presents Apple's `RPSystemBroadcastPickerView`. Native mode also stores the selected Bonjour receiver and pairing code. Browser mode stores a random access key and shows a QR/local URL derived from the sender's Wi-Fi address.
 
-In Browser mode, the private QR points directly to the ReplayKit extension on port `49374`. The viewer is opened after the broadcast countdown completes. No foreground-app bootstrap listener is used because iOS may suspend the Sender app during the broadcast sheet or immediately after switching to the streamed app.
+The private QR points directly to the ReplayKit extension on port `49374`, and the extension also accepts legacy saved links on port `49373`. The viewer is available whenever the broadcast is live, including when the native Receiver App is selected. No foreground-app bootstrap listener is used because iOS may suspend the Sender app during the broadcast sheet or immediately after switching to the streamed app.
 
 The live server exposes the neutral `Screen Share` web-app manifest and PNG icon. The manifest preserves the access key in its installed start URL. Only the neutral icon routes are public so iOS can fetch an Add-to-Home-Screen icon after dropping the URL query; readiness, viewer, and stream routes remain key-protected. Keys are generated independently per Sender installation and remain stable until the user explicitly rotates the private link.
 

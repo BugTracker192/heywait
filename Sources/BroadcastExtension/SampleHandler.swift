@@ -14,7 +14,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         let configuration = SenderConfigurationStore.shared.load()
-        guard configuration.isReady else {
+        guard configuration.deliveryMode == .browser || configuration.isReady else {
             finishBroadcastWithError(
                 NSError(
                     domain: "dev.screenshare.broadcast",
@@ -25,8 +25,36 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return
         }
 
-        switch configuration.deliveryMode {
-        case .nativeReceiver:
+        // Always expose the private browser viewer while a broadcast is live.
+        // This makes the QR resilient to a stale mode selection and also lets
+        // the native receiver and browser viewer be used during the same
+        // session. Video is only encoded for a browser after it connects.
+        let server = BrowserStreamServer(accessKey: configuration.browserAccessKey)
+        let jpegEncoder = BrowserJPEGEncoder(quality: configuration.quality)
+        let h264Encoder = H264Encoder(quality: configuration.quality)
+        browserServer = server
+        browserEncoder = jpegEncoder
+        browserH264Encoder = h264Encoder
+
+        jpegEncoder.onFrame = { [weak server] jpeg in
+            server?.publish(jpeg: jpeg)
+        }
+        h264Encoder.onFrame = { [weak server] frame in
+            server?.publish(h264: frame)
+        }
+        h264Encoder.onFailure = { [weak self] message in
+            self?.stopWithError(message)
+        }
+        server.onH264ClientReady = { [weak h264Encoder] in
+            h264Encoder?.requestKeyFrame()
+        }
+        server.onFailure = { [weak self] message in
+            guard configuration.deliveryMode == .browser else { return }
+            self?.stopWithError(message)
+        }
+        server.start()
+
+        if configuration.deliveryMode == .nativeReceiver {
             let encoder = H264Encoder(quality: configuration.quality)
             let transport = SenderTransport(configuration: configuration)
             self.encoder = encoder
@@ -45,31 +73,6 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 encoder?.requestKeyFrame()
             }
             transport.start()
-
-        case .browser:
-            let server = BrowserStreamServer(accessKey: configuration.browserAccessKey)
-            let jpegEncoder = BrowserJPEGEncoder(quality: configuration.quality)
-            let h264Encoder = H264Encoder(quality: configuration.quality)
-            self.browserServer = server
-            self.browserEncoder = jpegEncoder
-            self.browserH264Encoder = h264Encoder
-
-            jpegEncoder.onFrame = { [weak server] jpeg in
-                server?.publish(jpeg: jpeg)
-            }
-            h264Encoder.onFrame = { [weak server] frame in
-                server?.publish(h264: frame)
-            }
-            h264Encoder.onFailure = { [weak self] message in
-                self?.stopWithError(message)
-            }
-            server.onH264ClientReady = { [weak h264Encoder] in
-                h264Encoder?.requestKeyFrame()
-            }
-            server.onFailure = { [weak self] message in
-                self?.stopWithError(message)
-            }
-            server.start()
         }
     }
 
@@ -80,6 +83,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     override func broadcastResumed() {
         isPaused = false
         encoder?.requestKeyFrame()
+        browserH264Encoder?.requestKeyFrame()
     }
 
     override func broadcastFinished() {
@@ -104,9 +108,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         autoreleasepool {
             if sampleBufferType == .audioApp {
                 guard let frame = CapturedAudioPCMFrame.make(from: sampleBuffer) else { return }
-                if let browserServer {
-                    browserServer.publish(audio: frame)
-                } else if transport?.isReady == true {
+                browserServer?.publish(audio: frame)
+                if transport?.isReady == true {
                     transport?.sendAudio(frame)
                 }
                 return
@@ -114,22 +117,21 @@ final class SampleHandler: RPBroadcastSampleHandler {
             guard sampleBufferType == .video else { return }
 
             let orientation = videoOrientation(from: sampleBuffer)
+            let orientationChanged = orientation != lastOrientation
+            if orientationChanged {
+                lastOrientation = orientation
+                transport?.sendOrientation(orientation)
+                encoder?.requestKeyFrame()
+                browserH264Encoder?.requestKeyFrame()
+            }
+
             if let browserServer, browserServer.hasH264Clients, let browserH264Encoder {
-                if orientation != lastOrientation {
-                    lastOrientation = orientation
-                    browserH264Encoder.requestKeyFrame()
-                }
                 browserH264Encoder.encode(sampleBuffer, orientation: orientation)
             } else if let browserServer, browserServer.hasMJPEGClients, let browserEncoder {
-                guard browserServer.hasStreamingClients else { return }
-                lastOrientation = orientation
                 browserEncoder.encode(sampleBuffer, orientation: orientation)
-            } else if transport?.canEncodeNextFrame == true {
-                if orientation != lastOrientation {
-                    lastOrientation = orientation
-                    transport?.sendOrientation(orientation)
-                    encoder?.requestKeyFrame()
-                }
+            }
+
+            if transport?.canEncodeNextFrame == true {
                 encoder?.encode(sampleBuffer, orientation: orientation)
             }
         }
