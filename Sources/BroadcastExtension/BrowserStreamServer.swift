@@ -517,16 +517,23 @@ private final class BrowserHTTPClient {
             const key='\(accessKey)',stage=document.getElementById('stage');
             const canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false});
             const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound');
-            let decoder=null,latest=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false,h264Abort=new AbortController();
-            let audioContext=null,audioEnabled=false,audioLoopRunning=false,audioAt=0,audioAbort=new AbortController();
-            let orientationGestureGranted=false,lastLockedAspect='';
+            const frameCache=document.createElement('canvas'),frameCacheContext=frameCache.getContext('2d',{alpha:false});
+            const installedViewer=navigator.standalone===true
+              ||matchMedia('(display-mode: fullscreen)').matches
+              ||matchMedia('(display-mode: standalone)').matches;
+            let decoder=null,decoderSignature='',latest=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false;
+            let cachedWidth=0,cachedHeight=0,needsRedraw=false,streamGeneration=0,streamsActive=false,h264Abort=null;
+            let audioContext=null,audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null;
+            let orientationGestureGranted=installedViewer,lastLockedAspect='';
 
             function resize(){
               const viewport=window.visualViewport;
               const cssWidth=Math.max(1,Math.round(viewport?viewport.width:innerWidth));
               const cssHeight=Math.max(1,Math.round(viewport?viewport.height:innerHeight));
               const d=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.round(cssWidth*d)),h=Math.max(1,Math.round(cssHeight*d));
-              if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+              if(canvas.width!==w||canvas.height!==h){
+                canvas.width=w;canvas.height=h;needsRedraw=true;
+              }
             }
             function remoteLandscape(){
               const quarter=[5,6,7,8].includes(orientation);
@@ -554,6 +561,15 @@ private final class BrowserHTTPClient {
               resize();
               if(latest){
                 const w=latest.displayWidth||latest.codedWidth,h=latest.displayHeight||latest.codedHeight;
+                if(frameCache.width!==w||frameCache.height!==h){
+                  frameCache.width=w;frameCache.height=h;
+                }
+                frameCacheContext.drawImage(latest,0,0,w,h);
+                latest.close();latest=null;
+                cachedWidth=w;cachedHeight=h;needsRedraw=true;status.style.display='none';
+              }
+              if(needsRedraw&&cachedWidth&&cachedHeight){
+                const w=cachedWidth,h=cachedHeight;
                 const quarter=[5,6,7,8].includes(orientation),dw=quarter?h:w,dh=quarter?w:h;
                 const scale=Math.min(canvas.width/dw,canvas.height/dh);
                 ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -565,8 +581,8 @@ private final class BrowserHTTPClient {
                 else if(orientation===6)ctx.rotate(Math.PI/2);
                 else if(orientation===7){ctx.rotate(-Math.PI/2);ctx.scale(1,-1)}
                 else if(orientation===8)ctx.rotate(-Math.PI/2);
-                ctx.drawImage(latest,-w/2,-h/2,w,h);
-                latest.close();latest=null;status.style.display='none';
+                ctx.drawImage(frameCache,-w/2,-h/2,w,h);
+                needsRedraw=false;
               }
               requestAnimationFrame(render);
             }
@@ -586,19 +602,24 @@ private final class BrowserHTTPClient {
               const codec='avc1.'+[sps[1],sps[2],sps[3]].map(x=>x.toString(16).padStart(2,'0')).join('');
               sourceWidth=width;sourceHeight=height;
               orientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1;
+              needsRedraw=true;
               syncScreenOrientation();
-              if(decoder)decoder.close();
+              const signature=codec+':'+width+'x'+height+':'+Array.from(sps)+':'+Array.from(pps);
+              if(decoder&&decoder.state==='configured'&&decoderSignature===signature)return;
+              if(decoder&&decoder.state!=='closed')decoder.close();
               decoder=new VideoDecoder({
                 output:f=>{if(latest)latest.close();latest=f},
-                error:()=>startMJPEG()
+                error:()=>startMJPEG(streamGeneration)
               });
               decoder.configure({codec:codec,description:avcConfig(sps,pps,nal),codedWidth:width,codedHeight:height,optimizeForLatency:true,hardwareAcceleration:'prefer-hardware'});
+              decoderSignature=signature;
             }
-            async function startH264(){
+            async function startH264(generation){
               const response=await fetch('/h264?k='+key+'&t='+Date.now(),{cache:'no-store',signal:h264Abort.signal});
               if(!response.ok||!response.body)throw new Error('H264 stream unavailable');
               const reader=response.body.getReader();let data=new Uint8Array(0);
               while(true){
+                if(generation!==streamGeneration)throw new Error('H264 stream replaced');
                 const item=await reader.read();if(item.done)throw new Error('H264 stream ended');
                 const joined=new Uint8Array(data.length+item.value.length);joined.set(data);joined.set(item.value,data.length);data=joined;
                 let offset=0;
@@ -613,14 +634,22 @@ private final class BrowserHTTPClient {
                 if(offset)data=data.slice(offset);
               }
             }
-            function startMJPEG(){
-              if(usingFallback)return;usingFallback=true;
-              h264Abort.abort();
+            function startMJPEG(generation){
+              if(generation!==streamGeneration||usingFallback)return;usingFallback=true;
+              if(h264Abort)h264Abort.abort();
               if(decoder&&decoder.state!=='closed')decoder.close();
-              canvas.style.display='none';fallback.style.display='block';status.style.display='grid';
+              decoder=null;decoderSignature='';
+              canvas.style.display='block';fallback.style.display='none';
+              status.style.display=cachedWidth?'none':'grid';
               const connect=()=>{fallback.src='/stream?k='+key+'&t='+Date.now()};
-              fallback.onload=()=>{status.style.display='none'};
-              fallback.onerror=()=>{status.style.display='grid';setTimeout(connect,700)};
+              fallback.onload=()=>{
+                if(generation!==streamGeneration)return;
+                canvas.style.display='none';fallback.style.display='block';status.style.display='none';
+              };
+              fallback.onerror=()=>{
+                if(generation!==streamGeneration)return;
+                status.style.display=cachedWidth?'none':'grid';setTimeout(connect,700);
+              };
               connect();
             }
             function playAudio(v){
@@ -644,13 +673,13 @@ private final class BrowserHTTPClient {
               source.buffer=output;source.connect(audioContext.destination);source.start(audioAt);
               audioAt+=frames/rate;
             }
-            async function runAudio(){
-              if(audioLoopRunning)return;audioLoopRunning=true;
+            async function runAudio(generation){
+              if(audioLoopGeneration===generation)return;audioLoopGeneration=generation;
               try{
                 const response=await fetch('/audio?k='+key+'&t='+Date.now(),{cache:'no-store',signal:audioAbort.signal});
                 if(!response.ok||!response.body)throw new Error('Audio stream unavailable');
                 const reader=response.body.getReader();let data=new Uint8Array(0);
-                while(audioEnabled){
+                while(audioEnabled&&generation===streamGeneration){
                   const item=await reader.read();if(item.done)throw new Error('Audio stream ended');
                   const joined=new Uint8Array(data.length+item.value.length);joined.set(data);joined.set(item.value,data.length);data=joined;
                   let offset=0;
@@ -663,8 +692,8 @@ private final class BrowserHTTPClient {
                   if(offset)data=data.slice(offset);
                 }
               }catch(_){}
-              audioLoopRunning=false;
-              if(audioEnabled)setTimeout(runAudio,700);
+              if(audioLoopGeneration===generation)audioLoopGeneration=0;
+              if(audioEnabled&&generation===streamGeneration)setTimeout(()=>runAudio(generation),700);
             }
             stage.addEventListener('click',async()=>{
               if(!audioContext){
@@ -673,31 +702,55 @@ private final class BrowserHTTPClient {
               }
               if(audioContext){
                 audioContext.resume().then(()=>{
-                  audioEnabled=true;sound.style.display='none';runAudio();
+                  audioUnlocked=true;audioEnabled=true;sound.style.display='none';runAudio(streamGeneration);
                 }).catch(()=>{});
               }else{
                 sound.textContent='Audio is unavailable in this browser';
               }
               await enterImmersive();
-            },{once:true});
+            });
             addEventListener('resize',resize,{passive:true});
             if(window.visualViewport)window.visualViewport.addEventListener('resize',resize,{passive:true});
-            if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',resize);
-            document.addEventListener('fullscreenchange',()=>{syncScreenOrientation();resize()});
-            document.addEventListener('webkitfullscreenchange',()=>{syncScreenOrientation();resize()});
+            if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',()=>{needsRedraw=true;resize()});
+            document.addEventListener('fullscreenchange',()=>{needsRedraw=true;syncScreenOrientation();resize()});
+            document.addEventListener('webkitfullscreenchange',()=>{needsRedraw=true;syncScreenOrientation();resize()});
             const releaseStreams=()=>{
+              streamsActive=false;streamGeneration++;
+              orientationGestureGranted=installedViewer;lastLockedAspect='';
               audioEnabled=false;
-              h264Abort.abort();audioAbort.abort();
+              if(h264Abort)h264Abort.abort();
+              if(audioAbort)audioAbort.abort();
               fallback.removeAttribute('src');
               if(latest){latest.close();latest=null}
               if(decoder&&decoder.state!=='closed')decoder.close();
+              decoder=null;decoderSignature='';
+            };
+            const startStreams=()=>{
+              if(streamsActive)return;
+              streamsActive=true;const generation=++streamGeneration;
+              h264Abort=new AbortController();audioAbort=new AbortController();
+              usingFallback=false;canvas.style.display='block';fallback.style.display='none';
+              if(!cachedWidth)status.style.display='grid';
+              if(audioUnlocked&&audioContext){
+                audioContext.resume().then(()=>{
+                  if(generation!==streamGeneration)return;
+                  audioEnabled=true;runAudio(generation);
+                }).catch(()=>{});
+              }
+              if('VideoDecoder' in window&&'EncodedVideoChunk' in window){
+                startH264(generation).catch(()=>{
+                  if(generation===streamGeneration)startMJPEG(generation);
+                });
+              }else{
+                startMJPEG(generation);
+              }
             };
             document.addEventListener('visibilitychange',()=>{
-              if(document.hidden)releaseStreams();else location.reload();
+              if(document.hidden)releaseStreams();else startStreams();
             });
             addEventListener('pagehide',releaseStreams);
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
-            if('VideoDecoder' in window&&'EncodedVideoChunk' in window)startH264().catch(()=>startMJPEG());else startMJPEG();
+            startStreams();
           </script>
         </body>
         </html>

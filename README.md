@@ -117,7 +117,7 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 3. Choose quality and tap **Save browser mode**.
 4. Start the Screen Share broadcast and wait for the iOS countdown to finish.
 5. Now scan the QR or open the private URL in Safari, Chrome, Firefox, or another browser. The live extension must already be running when the browser opens the link.
-6. Tap the video once to enable sound, request fullscreen, and match the sender's current orientation where the browser supports orientation locking. Browsers require this one user gesture before a page may play audio or enter fullscreen.
+6. Add the page to the Home Screen with **Open as Web App** enabled, then launch that fresh shortcut. It opens fullscreen and follows sender portrait/landscape changes automatically. Tap the video once to unlock sound; a normal browser tab also uses that tap to request fullscreen and orientation locking.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.
 
@@ -199,7 +199,7 @@ This design was checked against current documentation on 2026-07-27:
 - Network.framework supports a fixed-port local listener for the receiver-free browser endpoint: [`NWListener`](https://developer.apple.com/documentation/network/nwlistener).
 - Core Image renders a bounded image and Image I/O encodes the compatibility JPEG fallback: [`CIContext.createCGImage`](https://developer.apple.com/documentation/coreimage/cicontext/creategcimage(_:from:format:colorspace:)).
 - Safari 16.4 and later exposes video WebCodecs for low-level real-time decoding; Browser mode uses it for the hardware H.264 path and keeps MJPEG for browsers without the API: [WebKit features in Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/).
-- A manifest with standalone display mode removes browser-provided toolbar UI for an installed Home Screen web app, while iOS remains responsible for its system status indicators: [What’s new in web apps](https://developer.apple.com/videos/play/wwdc2023/10120/).
+- A manifest with fullscreen display mode removes browser chrome and requests an edge-to-edge Home Screen web app, while iOS remains responsible for protected system privacy indicators: [Web Push for Web Apps on iOS and iPadOS](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
 - Apple provides `UIWindowScene.requestGeometryUpdate` to request landscape/portrait scene geometry; the receiver uses the remote video's intended display aspect so it fills the matching screen orientation: [`requestGeometryUpdate`](https://developer.apple.com/documentation/uikit/uiwindowscene/requestgeometryupdate(_:errorhandler:)).
 - VideoToolbox's expected-frame-rate property is an encoder hint, not a guarantee; delivered FPS still depends on ReplayKit sample delivery, device hardware, thermals, and network capacity: [`kVTCompressionPropertyKey_ExpectedFrameRate`](https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_expectedframerate).
 - TrollStore currently documents support through iOS 16.6.1, the 16.7 RC build, and iOS 17.0: [TrollStore compatibility](https://github.com/opa334/TrollStore).

@@ -274,7 +274,7 @@ struct SenderRootView: View {
                     .font(.caption)
 
                     Text(
-                        "Save Browser mode and start the broadcast first. Once the iOS sheet says it is live, scan this QR or open the link. Add it to the Home Screen for the standalone viewer."
+                        "Save Browser mode and start the broadcast first. Once the iOS sheet says it is live, scan this QR or open the link. Add it to the Home Screen with Open as Web App enabled for the fullscreen viewer."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

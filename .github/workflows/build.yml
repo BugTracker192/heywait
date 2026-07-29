@@ -91,6 +91,8 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "${receiver_info}")" = '_screenshare._tcp'
           test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "${receiver_info}")"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes:0' "${receiver_info}")" = 'audio'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UIStatusBarHidden' "${receiver_info}")" = 'true'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "${receiver_info}")" = 'false'
           test -x "${broadcast_app}/ScreenShareBroadcast"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${broadcast_info}")" = 'com.apple.broadcast-services-upload'
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionAttributes:RPBroadcastProcessMode' "${broadcast_info}")" = 'RPBroadcastProcessModeSampleBuffer'

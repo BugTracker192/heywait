@@ -35,11 +35,23 @@ if (!script.includes("orientationGestureGranted=true")) {
 if (!source.includes("#sound{display:none}")) {
   throw new Error("The browser viewer exposes the fullscreen/audio gesture overlay.");
 }
-if (!script.includes("stage.addEventListener('click',async()=>") || !script.includes("},{once:true});")) {
-  throw new Error("The browser viewer does not use a single unobtrusive activation gesture.");
+if (!script.includes("stage.addEventListener('click',async()=>")) {
+  throw new Error("The browser viewer does not provide an unobtrusive activation gesture.");
 }
-if (!script.includes("if(document.hidden)releaseStreams();else location.reload()")) {
+if (!script.includes("if(document.hidden)releaseStreams();else startStreams()")) {
   throw new Error("A backgrounded browser viewer does not release its stream connections.");
+}
+if (script.includes("location.reload()")) {
+  throw new Error("The browser viewer reloads and loses its orientation state after foregrounding.");
+}
+if (!script.includes("navigator.standalone===true") || !script.includes("orientationGestureGranted=installedViewer")) {
+  throw new Error("An installed browser viewer cannot restore orientation automatically.");
+}
+if (!script.includes("frameCacheContext.drawImage(latest") || !script.includes("needsRedraw&&cachedWidth&&cachedHeight")) {
+  throw new Error("The viewer does not preserve its last frame across canvas resizes.");
+}
+if (!script.includes("decoderSignature===signature") || !script.includes("decoderSignature=signature")) {
+  throw new Error("Orientation-only configuration packets unnecessarily reset the video decoder.");
 }
 
 console.log("Embedded browser viewer JavaScript is valid.");
