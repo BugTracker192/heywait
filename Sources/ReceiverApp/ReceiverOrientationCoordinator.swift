@@ -14,7 +14,6 @@ final class ReceiverOrientationCoordinator {
     static let shared = ReceiverOrientationCoordinator()
 
     private(set) var supportedOrientations: UIInterfaceOrientationMask = .portrait
-    private var requestedGeometryOrientations: UIInterfaceOrientationMask = .portrait
     private var encodedWidth: Int32 = 0
     private var encodedHeight: Int32 = 0
     private var videoOrientation: UInt32 = 1
@@ -29,7 +28,6 @@ final class ReceiverOrientationCoordinator {
             guard let self else { return }
             self.request(
                 supported: self.supportedOrientations,
-                geometry: self.requestedGeometryOrientations,
                 force: true
             )
         }
@@ -51,7 +49,7 @@ final class ReceiverOrientationCoordinator {
         encodedWidth = 0
         encodedHeight = 0
         videoOrientation = 1
-        request(supported: .portrait, geometry: .portrait)
+        request(supported: .portrait)
     }
 
     static func interfaceOrientations(
@@ -66,9 +64,11 @@ final class ReceiverOrientationCoordinator {
         let displayHeight = isQuarterTurn ? encodedWidth : encodedHeight
         guard displayWidth > displayHeight else { return .portrait }
 
-        // The app must support both sides so UIKit never rejects a landscape
-        // transition. The exact side is requested separately from the
-        // ReplayKit orientation metadata.
+        // Request the landscape aspect, not the sender's physical side. The
+        // receiving phone chooses the side that matches how it is being held;
+        // the video layer independently applies ReplayKit's EXIF transform.
+        // Forcing the sender's side here rotates the scene and the video at
+        // once, producing a persistent 180-degree mismatch with system UI.
         return .landscape
     }
 
@@ -78,43 +78,18 @@ final class ReceiverOrientationCoordinator {
             encodedHeight: encodedHeight,
             videoOrientation: videoOrientation
         )
-        request(
-            supported: supported,
-            geometry: Self.geometryOrientations(
-                supported: supported,
-                videoOrientation: videoOrientation
-            )
-        )
-    }
-
-    static func geometryOrientations(
-        supported: UIInterfaceOrientationMask,
-        videoOrientation: UInt32
-    ) -> UIInterfaceOrientationMask {
-        guard supported == .landscape else { return .portrait }
-        switch videoOrientation {
-        case 5, 6:
-            return .landscapeLeft
-        case 7, 8:
-            return .landscapeRight
-        default:
-            return .landscape
-        }
+        request(supported: supported)
     }
 
     private func request(
         supported: UIInterfaceOrientationMask,
-        geometry: UIInterfaceOrientationMask,
         force: Bool = false
     ) {
         dispatchPrecondition(condition: .onQueue(.main))
-        guard force
-            || supportedOrientations != supported
-            || requestedGeometryOrientations != geometry else {
+        guard force || supportedOrientations != supported else {
             return
         }
         supportedOrientations = supported
-        requestedGeometryOrientations = geometry
 
         guard let scene = activeWindowScene() else { return }
         let rootViewController = scene.windows
@@ -124,23 +99,16 @@ final class ReceiverOrientationCoordinator {
         if #available(iOS 16.0, *) {
             rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             scene.requestGeometryUpdate(
-                .iOS(interfaceOrientations: geometry)
+                .iOS(interfaceOrientations: supported)
             ) { _ in
-                // If the exact landscape side is temporarily unavailable,
-                // keep the app rotatable instead of leaving it in portrait.
-                guard supported == .landscape, geometry != .landscape else { return }
-                DispatchQueue.main.async {
-                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape))
-                }
+                // Becoming active or receiving another aspect update retries.
             }
         } else {
             let deviceOrientation: UIDeviceOrientation
-            if geometry == .portrait {
+            if supported == .portrait {
                 deviceOrientation = .portrait
-            } else if geometry == .landscapeLeft {
-                deviceOrientation = .landscapeRight
-            } else if geometry == .landscapeRight {
-                deviceOrientation = .landscapeLeft
+            } else if UIDevice.current.orientation.isLandscape {
+                deviceOrientation = UIDevice.current.orientation
             } else {
                 deviceOrientation = .landscapeRight
             }

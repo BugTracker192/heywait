@@ -504,7 +504,7 @@ private final class BrowserHTTPClient {
             canvas,img{position:absolute;inset:0;width:100%;height:100%;background:#000}
             img{display:none;object-fit:contain}
             #status{position:fixed;inset:0;display:grid;place-items:center;color:#aaa;font:17px -apple-system,sans-serif;text-align:center;pointer-events:none}
-            #sound{position:fixed;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translateX(-50%);padding:9px 14px;border-radius:999px;background:#222c;color:#fff;font:14px -apple-system,sans-serif;white-space:nowrap;pointer-events:none}
+            #sound{display:none}
             :fullscreen #stage,:fullscreen canvas,:fullscreen img{width:100%;height:100%}
             :-webkit-full-screen #stage,:-webkit-full-screen canvas,:-webkit-full-screen img{width:100%;height:100%}
           </style>
@@ -519,6 +519,7 @@ private final class BrowserHTTPClient {
             const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound');
             let decoder=null,latest=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false,h264Abort=new AbortController();
             let audioContext=null,audioEnabled=false,audioLoopRunning=false,audioAt=0,audioAbort=new AbortController();
+            let orientationGestureGranted=false,lastLockedAspect='';
 
             function resize(){
               const viewport=window.visualViewport;
@@ -533,10 +534,13 @@ private final class BrowserHTTPClient {
               return width>height;
             }
             async function syncScreenOrientation(){
-              if(!sourceWidth||!sourceHeight||!screen.orientation||typeof screen.orientation.lock!=='function')return;
-              try{await screen.orientation.lock(remoteLandscape()?'landscape':'portrait')}catch(_){}
+              if(!orientationGestureGranted||!sourceWidth||!sourceHeight||!screen.orientation||typeof screen.orientation.lock!=='function')return;
+              const target=remoteLandscape()?'landscape':'portrait';
+              if(target===lastLockedAspect)return;
+              try{await screen.orientation.lock(target);lastLockedAspect=target}catch(_){}
             }
             async function enterImmersive(){
+              orientationGestureGranted=true;
               let target=document.documentElement;
               let request=target.requestFullscreen||target.webkitRequestFullscreen;
               if(!request){target=stage;request=stage.requestFullscreen||stage.webkitRequestFullscreen}
@@ -675,7 +679,7 @@ private final class BrowserHTTPClient {
                 sound.textContent='Audio is unavailable in this browser';
               }
               await enterImmersive();
-            });
+            },{once:true});
             addEventListener('resize',resize,{passive:true});
             if(window.visualViewport)window.visualViewport.addEventListener('resize',resize,{passive:true});
             if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',resize);

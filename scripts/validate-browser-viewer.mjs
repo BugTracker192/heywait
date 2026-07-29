@@ -22,7 +22,21 @@ if (!script.includes("orientation=(nextOrientation>=1&&nextOrientation<=8)?nextO
   throw new Error("Browser orientation packets are not updating the renderer state.");
 }
 if (!script.includes("screen.orientation.lock(remoteLandscape()?'landscape':'portrait')")) {
-  throw new Error("Browser fullscreen does not synchronize with the sender orientation.");
+  if (!script.includes("screen.orientation.lock(target);lastLockedAspect=target")) {
+    throw new Error("Browser fullscreen does not synchronize with the sender aspect.");
+  }
+}
+if (!script.includes("if(target===lastLockedAspect)return")) {
+  throw new Error("Browser orientation locking can repeat for the same aspect.");
+}
+if (!script.includes("orientationGestureGranted=true")) {
+  throw new Error("Browser orientation locking is not gated behind user activation.");
+}
+if (!source.includes("#sound{display:none}")) {
+  throw new Error("The browser viewer exposes the fullscreen/audio gesture overlay.");
+}
+if (!script.includes("stage.addEventListener('click',async()=>") || !script.includes("},{once:true});")) {
+  throw new Error("The browser viewer does not use a single unobtrusive activation gesture.");
 }
 if (!script.includes("if(document.hidden)releaseStreams();else location.reload()")) {
   throw new Error("A backgrounded browser viewer does not release its stream connections.");
