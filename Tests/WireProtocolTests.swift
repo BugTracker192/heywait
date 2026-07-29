@@ -363,7 +363,7 @@ final class WireProtocolTests: XCTestCase {
 
         XCTAssertEqual(manifest["name"] as? String, "Screen Share")
         XCTAssertEqual(manifest["short_name"] as? String, "Screen Share")
-        XCTAssertEqual(manifest["display"] as? String, "standalone")
+        XCTAssertEqual(manifest["display"] as? String, "fullscreen")
         XCTAssertEqual(manifest["orientation"] as? String, "any")
         XCTAssertEqual(manifest["start_url"] as? String, "/?k=23456789ABCDEFGH")
         let icons = try XCTUnwrap(manifest["icons"] as? [[String: Any]])

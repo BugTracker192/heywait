@@ -497,27 +497,51 @@ private final class BrowserHTTPClient {
           <style>
             *{box-sizing:border-box;-webkit-user-select:none;user-select:none}
             html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;background:#000;overflow:hidden;overscroll-behavior:none}
-            #stage{position:fixed;inset:0;background:#000;touch-action:none}
-            canvas,img{position:absolute;inset:0;width:100dvw;height:100dvh;background:#000}
+            #stage{position:fixed;inset:0;width:100%;height:100%;background:#000;touch-action:none}
+            canvas,img{position:absolute;inset:0;width:100%;height:100%;background:#000}
             img{display:none;object-fit:contain}
             #status{position:fixed;inset:0;display:grid;place-items:center;color:#aaa;font:17px -apple-system,sans-serif;text-align:center;pointer-events:none}
-            #sound{position:fixed;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translateX(-50%);padding:9px 14px;border-radius:999px;background:#222c;color:#fff;font:14px -apple-system,sans-serif;pointer-events:none}
+            #sound{position:fixed;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translateX(-50%);padding:9px 14px;border-radius:999px;background:#222c;color:#fff;font:14px -apple-system,sans-serif;white-space:nowrap;pointer-events:none}
+            :fullscreen #stage,:fullscreen canvas,:fullscreen img{width:100%;height:100%}
+            :-webkit-full-screen #stage,:-webkit-full-screen canvas,:-webkit-full-screen img{width:100%;height:100%}
           </style>
         </head>
         <body>
           <div id="stage"><canvas id="video"></canvas><img id="fallback" alt="Live Screen Share"></div>
           <div id="status">Connecting to live screen...</div>
-          <div id="sound">Tap once for sound</div>
+          <div id="sound">Tap once for fullscreen + sound</div>
           <script>
             const key='\(accessKey)',stage=document.getElementById('stage');
             const canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false});
             const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound');
-            let decoder=null,latest=null,orientation=1,usingFallback=false,h264Abort=new AbortController();
+            let decoder=null,latest=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false,h264Abort=new AbortController();
             let audioContext=null,audioEnabled=false,audioLoopRunning=false,audioAt=0;
 
             function resize(){
-              const d=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.round(innerWidth*d)),h=Math.max(1,Math.round(innerHeight*d));
+              const viewport=window.visualViewport;
+              const cssWidth=Math.max(1,Math.round(viewport?viewport.width:innerWidth));
+              const cssHeight=Math.max(1,Math.round(viewport?viewport.height:innerHeight));
+              const d=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.round(cssWidth*d)),h=Math.max(1,Math.round(cssHeight*d));
               if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+            }
+            function remoteLandscape(){
+              const quarter=[5,6,7,8].includes(orientation);
+              const width=quarter?sourceHeight:sourceWidth,height=quarter?sourceWidth:sourceHeight;
+              return width>height;
+            }
+            async function syncScreenOrientation(){
+              if(!sourceWidth||!sourceHeight||!screen.orientation||typeof screen.orientation.lock!=='function')return;
+              try{await screen.orientation.lock(remoteLandscape()?'landscape':'portrait')}catch(_){}
+            }
+            async function enterImmersive(){
+              let target=document.documentElement;
+              let request=target.requestFullscreen||target.webkitRequestFullscreen;
+              if(!request){target=stage;request=stage.requestFullscreen||stage.webkitRequestFullscreen}
+              if(request&&!document.fullscreenElement&&!document.webkitFullscreenElement){
+                try{await Promise.resolve(request.call(target))}catch(_){}
+              }
+              await syncScreenOrientation();
+              resize();
             }
             function render(){
               resize();
@@ -550,9 +574,12 @@ private final class BrowserHTTPClient {
               return out;
             }
             function configure(v){
-              const width=u32(v,0),height=u32(v,4);orientation=u32(v,8);const nal=v[12],slen=u32(v,13);
+              const width=u32(v,0),height=u32(v,4),nextOrientation=u32(v,8);const nal=v[12],slen=u32(v,13);
               const sps=v.slice(17,17+slen),po=17+slen,plen=u32(v,po),pps=v.slice(po+4,po+4+plen);
               const codec='avc1.'+[sps[1],sps[2],sps[3]].map(x=>x.toString(16).padStart(2,'0')).join('');
+              sourceWidth=width;sourceHeight=height;
+              orientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1;
+              syncScreenOrientation();
               if(decoder)decoder.close();
               decoder=new VideoDecoder({
                 output:f=>{if(latest)latest.close();latest=f},
@@ -632,7 +659,7 @@ private final class BrowserHTTPClient {
               audioLoopRunning=false;
               if(audioEnabled)setTimeout(runAudio,700);
             }
-            stage.addEventListener('click',()=>{
+            stage.addEventListener('click',async()=>{
               if(!audioContext){
                 const AudioContextClass=window.AudioContext||window.webkitAudioContext;
                 if(AudioContextClass)audioContext=new AudioContextClass({latencyHint:'interactive'});
@@ -644,9 +671,13 @@ private final class BrowserHTTPClient {
               }else{
                 sound.textContent='Audio is unavailable in this browser';
               }
-              const request=stage.requestFullscreen||stage.webkitRequestFullscreen;
-              if(request)Promise.resolve(request.call(stage)).catch(()=>{});
+              await enterImmersive();
             });
+            addEventListener('resize',resize,{passive:true});
+            if(window.visualViewport)window.visualViewport.addEventListener('resize',resize,{passive:true});
+            if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',resize);
+            document.addEventListener('fullscreenchange',()=>{syncScreenOrientation();resize()});
+            document.addEventListener('webkitfullscreenchange',()=>{syncScreenOrientation();resize()});
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             if('VideoDecoder' in window&&'EncodedVideoChunk' in window)startH264().catch(()=>startMJPEG());else startMJPEG();
           </script>

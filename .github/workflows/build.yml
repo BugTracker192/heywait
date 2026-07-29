@@ -42,6 +42,9 @@ jobs:
           xcodegen --version
           command -v ldid
 
+      - name: Validate browser viewer
+        run: node scripts/validate-browser-viewer.mjs
+
       - name: Generate Xcode project
         run: xcodegen generate
 
