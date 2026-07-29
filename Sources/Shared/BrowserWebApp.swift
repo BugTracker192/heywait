@@ -13,7 +13,7 @@ enum BrowserWebApp {
             "id": "/?k=\(key)",
             "start_url": "/?k=\(key)",
             "scope": "/",
-            "display": "fullscreen",
+            "display": "standalone",
             "orientation": "any",
             "background_color": "#000000",
             "theme_color": "#000000",

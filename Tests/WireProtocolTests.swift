@@ -363,12 +363,16 @@ final class WireProtocolTests: XCTestCase {
 
         XCTAssertEqual(manifest["name"] as? String, "Screen Share")
         XCTAssertEqual(manifest["short_name"] as? String, "Screen Share")
-        XCTAssertEqual(manifest["display"] as? String, "fullscreen")
+        XCTAssertEqual(manifest["display"] as? String, "standalone")
         XCTAssertEqual(manifest["orientation"] as? String, "any")
         XCTAssertEqual(manifest["start_url"] as? String, "/?k=23456789ABCDEFGH")
         let icons = try XCTUnwrap(manifest["icons"] as? [[String: Any]])
         XCTAssertEqual(icons.first?["src"] as? String, "/icon.png")
         XCTAssertTrue(BrowserWebApp.iconPNG.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+    }
+
+    func testBrowserConnectionBudgetAllowsPageAssetsVideoAndAudio() {
+        XCTAssertGreaterThanOrEqual(AppConstants.maximumBrowserConnections, 16)
     }
 
     func testBrowserHTTPHeadersEndWithCompleteCRLFDelimiter() {

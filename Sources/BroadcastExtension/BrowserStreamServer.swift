@@ -148,7 +148,7 @@ final class BrowserStreamServer {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard clients.count < AppConstants.maximumBrowserClients else {
+        guard clients.count < AppConstants.maximumBrowserConnections else {
             connection.cancel()
             return
         }
@@ -312,9 +312,12 @@ private final class BrowserHTTPClient {
         payload.append(BrowserH264Wire.framePacket(frame))
 
         guard h264SendQueue.count < 10 else {
-            h264SendQueue.removeAll(keepingCapacity: true)
-            isAwaitingH264KeyFrame = true
-            onNeedsH264KeyFrame?()
+            // A suspended/background browser cannot drain a real-time video
+            // queue. Release it instead of letting a stale tab permanently
+            // consume one of the extension's bounded connections.
+            queue.async { [weak self] in
+                self?.stop()
+            }
             return
         }
         h264SendQueue.append(BrowserH264Wire.chunk(payload))
@@ -515,7 +518,7 @@ private final class BrowserHTTPClient {
             const canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false});
             const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound');
             let decoder=null,latest=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false,h264Abort=new AbortController();
-            let audioContext=null,audioEnabled=false,audioLoopRunning=false,audioAt=0;
+            let audioContext=null,audioEnabled=false,audioLoopRunning=false,audioAt=0,audioAbort=new AbortController();
 
             function resize(){
               const viewport=window.visualViewport;
@@ -640,7 +643,7 @@ private final class BrowserHTTPClient {
             async function runAudio(){
               if(audioLoopRunning)return;audioLoopRunning=true;
               try{
-                const response=await fetch('/audio?k='+key+'&t='+Date.now(),{cache:'no-store'});
+                const response=await fetch('/audio?k='+key+'&t='+Date.now(),{cache:'no-store',signal:audioAbort.signal});
                 if(!response.ok||!response.body)throw new Error('Audio stream unavailable');
                 const reader=response.body.getReader();let data=new Uint8Array(0);
                 while(audioEnabled){
@@ -678,6 +681,17 @@ private final class BrowserHTTPClient {
             if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',resize);
             document.addEventListener('fullscreenchange',()=>{syncScreenOrientation();resize()});
             document.addEventListener('webkitfullscreenchange',()=>{syncScreenOrientation();resize()});
+            const releaseStreams=()=>{
+              audioEnabled=false;
+              h264Abort.abort();audioAbort.abort();
+              fallback.removeAttribute('src');
+              if(latest){latest.close();latest=null}
+              if(decoder&&decoder.state!=='closed')decoder.close();
+            };
+            document.addEventListener('visibilitychange',()=>{
+              if(document.hidden)releaseStreams();else location.reload();
+            });
+            addEventListener('pagehide',releaseStreams);
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             if('VideoDecoder' in window&&'EncodedVideoChunk' in window)startH264().catch(()=>startMJPEG());else startMJPEG();
           </script>

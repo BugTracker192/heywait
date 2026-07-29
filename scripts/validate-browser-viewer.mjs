@@ -24,5 +24,8 @@ if (!script.includes("orientation=(nextOrientation>=1&&nextOrientation<=8)?nextO
 if (!script.includes("screen.orientation.lock(remoteLandscape()?'landscape':'portrait')")) {
   throw new Error("Browser fullscreen does not synchronize with the sender orientation.");
 }
+if (!script.includes("if(document.hidden)releaseStreams();else location.reload()")) {
+  throw new Error("A backgrounded browser viewer does not release its stream connections.");
+}
 
 console.log("Embedded browser viewer JavaScript is valid.");

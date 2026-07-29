@@ -17,6 +17,11 @@ enum AppConstants {
     static let allowsAutomaticPictureInPicture = false
     static let receiverBackgroundGraceSeconds: TimeInterval = 60
     static let browserViewerPort: UInt16 = 49_373
-    static let maximumBrowserClients = 4
+    // A single browser viewer can briefly hold the HTML, icon, manifest,
+    // video, and audio requests at the same time. Safari also keeps the
+    // scanned tab alive while launching an installed Home Screen web app.
+    // Bound total HTTP connections without mistaking those subrequests for
+    // separate viewers.
+    static let maximumBrowserConnections = 24
 }
 
