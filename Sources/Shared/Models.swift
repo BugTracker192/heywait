@@ -101,8 +101,8 @@ enum StreamQuality: String, CaseIterable, Codable {
 
     var maximumEncodedDimension: Int32 {
         switch self {
-        case .balanced: return 1_440
-        case .sharp: return 1_920
+        case .balanced: return 1_280
+        case .sharp: return 1_600
         case .dataSaver: return 960
         }
     }

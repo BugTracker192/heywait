@@ -505,6 +505,9 @@ private final class BrowserHTTPClient {
             img{display:none;object-fit:contain}
             #status{position:fixed;inset:0;display:grid;place-items:center;color:#aaa;font:17px -apple-system,sans-serif;text-align:center;pointer-events:none}
             #sound{display:none}
+            #expand{position:fixed;z-index:4;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));width:46px;height:46px;border:0;border-radius:23px;background:#111b;color:#fff;display:grid;place-items:center;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+            #expand[hidden],:fullscreen #expand,:-webkit-full-screen #expand{display:none}
+            #expand svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
             :fullscreen #stage,:fullscreen canvas,:fullscreen img{width:100%;height:100%}
             :-webkit-full-screen #stage,:-webkit-full-screen canvas,:-webkit-full-screen img{width:100%;height:100%}
           </style>
@@ -513,18 +516,22 @@ private final class BrowserHTTPClient {
           <div id="stage"><canvas id="video"></canvas><img id="fallback" alt="Live Screen Share"></div>
           <div id="status">Connecting to live screen...</div>
           <div id="sound">Tap once for fullscreen + sound</div>
+          <button id="expand" type="button" aria-label="Enter fullscreen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+          </button>
           <script>
             const key='\(accessKey)',stage=document.getElementById('stage');
             const canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false});
-            const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound');
-            const frameCache=document.createElement('canvas'),frameCacheContext=frameCache.getContext('2d',{alpha:false});
+            const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound'),expand=document.getElementById('expand');
             const installedViewer=navigator.standalone===true
               ||matchMedia('(display-mode: fullscreen)').matches
               ||matchMedia('(display-mode: standalone)').matches;
-            let decoder=null,decoderSignature='',latest=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false;
+            expand.hidden=installedViewer;
+            let decoder=null,decoderSignature='',latest=null,displayed=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false;
             let cachedWidth=0,cachedHeight=0,needsRedraw=false,streamGeneration=0,streamsActive=false,h264Abort=null;
             let audioContext=null,audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null;
             let orientationGestureGranted=installedViewer,lastLockedAspect='';
+            let viewScale=1,pinchStartDistance=0,pinchStartScale=1,lastStageTap=0;
 
             function resize(){
               const viewport=window.visualViewport;
@@ -557,31 +564,62 @@ private final class BrowserHTTPClient {
               await syncScreenOrientation();
               resize();
             }
+            function fullscreenActive(){
+              return !!(document.fullscreenElement||document.webkitFullscreenElement);
+            }
+            function updateExpandButton(){
+              expand.hidden=installedViewer||fullscreenActive();
+            }
+            function fitScaleForMode(fill){
+              if(!cachedWidth||!cachedHeight)return 1;
+              const quarter=[5,6,7,8].includes(orientation);
+              const width=quarter?cachedHeight:cachedWidth,height=quarter?cachedWidth:cachedHeight;
+              const fit=Math.min(canvas.width/width,canvas.height/height);
+              const cover=Math.max(canvas.width/width,canvas.height/height);
+              return fill?Math.min(3,Math.max(1,cover/fit)):1;
+            }
+            function toggleFit(){
+              viewScale=viewScale>1.01?1:fitScaleForMode(true);
+              needsRedraw=true;
+            }
+            async function activateViewer(){
+              if(!audioContext){
+                const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+                if(AudioContextClass)audioContext=new AudioContextClass({latencyHint:'interactive'});
+              }
+              if(audioContext){
+                audioContext.resume().then(()=>{
+                  audioUnlocked=true;audioEnabled=true;sound.style.display='none';runAudio(streamGeneration);
+                }).catch(()=>{});
+              }else{
+                sound.textContent='Audio is unavailable in this browser';
+              }
+              await enterImmersive();
+              updateExpandButton();
+            }
             function render(){
               resize();
               if(latest){
-                const w=latest.displayWidth||latest.codedWidth,h=latest.displayHeight||latest.codedHeight;
-                if(frameCache.width!==w||frameCache.height!==h){
-                  frameCache.width=w;frameCache.height=h;
-                }
-                frameCacheContext.drawImage(latest,0,0,w,h);
-                latest.close();latest=null;
-                cachedWidth=w;cachedHeight=h;needsRedraw=true;status.style.display='none';
+                if(displayed)displayed.close();
+                displayed=latest;latest=null;
+                cachedWidth=displayed.displayWidth||displayed.codedWidth;
+                cachedHeight=displayed.displayHeight||displayed.codedHeight;
+                needsRedraw=true;status.style.display='none';
               }
-              if(needsRedraw&&cachedWidth&&cachedHeight){
+              if(needsRedraw&&displayed&&cachedWidth&&cachedHeight){
                 const w=cachedWidth,h=cachedHeight;
                 const quarter=[5,6,7,8].includes(orientation),dw=quarter?h:w,dh=quarter?w:h;
-                const scale=Math.min(canvas.width/dw,canvas.height/dh);
+                const scale=Math.min(canvas.width/dw,canvas.height/dh)*viewScale;
                 ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
                 ctx.translate(canvas.width/2,canvas.height/2);ctx.scale(scale,scale);
                 if(orientation===2)ctx.scale(-1,1);
                 else if(orientation===3)ctx.rotate(Math.PI);
                 else if(orientation===4)ctx.scale(1,-1);
-                else if(orientation===5){ctx.rotate(Math.PI/2);ctx.scale(1,-1)}
-                else if(orientation===6)ctx.rotate(Math.PI/2);
-                else if(orientation===7){ctx.rotate(-Math.PI/2);ctx.scale(1,-1)}
-                else if(orientation===8)ctx.rotate(-Math.PI/2);
-                ctx.drawImage(frameCache,-w/2,-h/2,w,h);
+                else if(orientation===5){ctx.rotate(-Math.PI/2);ctx.scale(1,-1)}
+                else if(orientation===6)ctx.rotate(-Math.PI/2);
+                else if(orientation===7){ctx.rotate(Math.PI/2);ctx.scale(1,-1)}
+                else if(orientation===8)ctx.rotate(Math.PI/2);
+                ctx.drawImage(displayed,-w/2,-h/2,w,h);
                 needsRedraw=false;
               }
               requestAnimationFrame(render);
@@ -601,6 +639,7 @@ private final class BrowserHTTPClient {
               const sps=v.slice(17,17+slen),po=17+slen,plen=u32(v,po),pps=v.slice(po+4,po+4+plen);
               const codec='avc1.'+[sps[1],sps[2],sps[3]].map(x=>x.toString(16).padStart(2,'0')).join('');
               sourceWidth=width;sourceHeight=height;
+              if(orientation!==nextOrientation)viewScale=1;
               orientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1;
               needsRedraw=true;
               syncScreenOrientation();
@@ -696,24 +735,37 @@ private final class BrowserHTTPClient {
               if(audioEnabled&&generation===streamGeneration)setTimeout(()=>runAudio(generation),700);
             }
             stage.addEventListener('click',async()=>{
-              if(!audioContext){
-                const AudioContextClass=window.AudioContext||window.webkitAudioContext;
-                if(AudioContextClass)audioContext=new AudioContextClass({latencyHint:'interactive'});
-              }
-              if(audioContext){
-                audioContext.resume().then(()=>{
-                  audioUnlocked=true;audioEnabled=true;sound.style.display='none';runAudio(streamGeneration);
-                }).catch(()=>{});
-              }else{
-                sound.textContent='Audio is unavailable in this browser';
-              }
-              await enterImmersive();
+              const now=performance.now();
+              if(now-lastStageTap<320)toggleFit();
+              lastStageTap=now;
+              await activateViewer();
             });
+            expand.addEventListener('click',async event=>{
+              event.preventDefault();event.stopPropagation();
+              await activateViewer();
+            });
+            const touchDistance=touches=>Math.hypot(
+              touches[0].clientX-touches[1].clientX,
+              touches[0].clientY-touches[1].clientY
+            );
+            stage.addEventListener('touchstart',event=>{
+              if(event.touches.length!==2)return;
+              pinchStartDistance=Math.max(1,touchDistance(event.touches));
+              pinchStartScale=viewScale;event.preventDefault();
+            },{passive:false});
+            stage.addEventListener('touchmove',event=>{
+              if(event.touches.length!==2||!pinchStartDistance)return;
+              viewScale=Math.min(3,Math.max(1,pinchStartScale*touchDistance(event.touches)/pinchStartDistance));
+              needsRedraw=true;event.preventDefault();
+            },{passive:false});
+            stage.addEventListener('touchend',event=>{
+              if(event.touches.length<2)pinchStartDistance=0;
+            },{passive:true});
             addEventListener('resize',resize,{passive:true});
             if(window.visualViewport)window.visualViewport.addEventListener('resize',resize,{passive:true});
             if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',()=>{needsRedraw=true;resize()});
-            document.addEventListener('fullscreenchange',()=>{needsRedraw=true;syncScreenOrientation();resize()});
-            document.addEventListener('webkitfullscreenchange',()=>{needsRedraw=true;syncScreenOrientation();resize()});
+            document.addEventListener('fullscreenchange',()=>{needsRedraw=true;updateExpandButton();syncScreenOrientation();resize()});
+            document.addEventListener('webkitfullscreenchange',()=>{needsRedraw=true;updateExpandButton();syncScreenOrientation();resize()});
             const releaseStreams=()=>{
               streamsActive=false;streamGeneration++;
               orientationGestureGranted=installedViewer;lastLockedAspect='';

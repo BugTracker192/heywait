@@ -240,22 +240,22 @@ final class WireProtocolTests: XCTestCase {
 
     func testStreamQualityBoundsNativePhoneResolution() {
         let balanced = StreamQuality.balanced.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(balanced.width, 664)
-        XCTAssertEqual(balanced.height, 1440)
+        XCTAssertEqual(balanced.width, 590)
+        XCTAssertEqual(balanced.height, 1280)
 
         let sharp = StreamQuality.sharp.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(sharp.width, 886)
-        XCTAssertEqual(sharp.height, 1920)
+        XCTAssertEqual(sharp.width, 738)
+        XCTAssertEqual(sharp.height, 1600)
 
         let saver = StreamQuality.dataSaver.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
         XCTAssertEqual(saver.width, 442)
         XCTAssertEqual(saver.height, 960)
     }
 
-    func testStreamQualityKeepsSmallEvenResolution() {
+    func testStreamQualityScalesOlderPhoneResolutionToLowLatencyBound() {
         let dimensions = StreamQuality.balanced.encodedDimensions(sourceWidth: 750, sourceHeight: 1334)
-        XCTAssertEqual(dimensions.width, 750)
-        XCTAssertEqual(dimensions.height, 1334)
+        XCTAssertEqual(dimensions.width, 718)
+        XCTAssertEqual(dimensions.height, 1280)
     }
 
     func testStreamQualityFrameRateTargets() {
@@ -310,7 +310,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v2"
+            "dev.screenshare.sender.broadcast.v3"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
@@ -433,6 +433,24 @@ final class WireProtocolTests: XCTestCase {
                 videoOrientation: 8
             ),
             .portrait
+        )
+    }
+
+    func testRawReplayKitQuarterTurnsMatchReceiverDisplayCoordinates() {
+        XCTAssertEqual(
+            VideoRendererView.rotationAngle(for: 6),
+            -.pi / 2,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            VideoRendererView.rotationAngle(for: 8),
+            .pi / 2,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            VideoRendererView.rotationAngle(for: 3),
+            .pi,
+            accuracy: 0.0001
         )
     }
 

@@ -134,12 +134,13 @@ final class H264Encoder {
         session = created
 
         set(created, kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
+        set(created, kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
         set(created, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
         set(created, kVTCompressionPropertyKey_MaxFrameDelayCount, NSNumber(value: 0))
         set(created, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_Baseline_AutoLevel)
         set(created, kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: quality.framesPerSecond))
-        set(created, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: quality.framesPerSecond))
-        set(created, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: 1))
+        set(created, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: max(1, quality.framesPerSecond / 2)))
+        set(created, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: 0.5))
         let pixelTransferProperties: [CFString: Any] = [
             kVTPixelTransferPropertyKey_RealTime: true,
             kVTPixelTransferPropertyKey_ScalingMode: kVTScalingMode_Normal

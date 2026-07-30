@@ -38,6 +38,12 @@ if (!source.includes("#sound{display:none}")) {
 if (!script.includes("stage.addEventListener('click',async()=>")) {
   throw new Error("The browser viewer does not provide an unobtrusive activation gesture.");
 }
+if (!source.includes('id="expand"') || !script.includes("expand.addEventListener('click'")) {
+  throw new Error("The browser viewer does not provide an explicit fullscreen button.");
+}
+if (!script.includes("toggleFit()") || !script.includes("pinchStartScale*touchDistance")) {
+  throw new Error("The browser viewer does not provide fill and pinch zoom controls.");
+}
 if (!script.includes("if(document.hidden)releaseStreams();else startStreams()")) {
   throw new Error("A backgrounded browser viewer does not release its stream connections.");
 }
@@ -47,8 +53,15 @@ if (script.includes("location.reload()")) {
 if (!script.includes("navigator.standalone===true") || !script.includes("orientationGestureGranted=installedViewer")) {
   throw new Error("An installed browser viewer cannot restore orientation automatically.");
 }
-if (!script.includes("frameCacheContext.drawImage(latest") || !script.includes("needsRedraw&&cachedWidth&&cachedHeight")) {
+if (!script.includes("displayed=latest;latest=null") || !script.includes("ctx.drawImage(displayed")) {
   throw new Error("The viewer does not preserve its last frame across canvas resizes.");
+}
+if (script.includes("frameCache")) {
+  throw new Error("The viewer is still copying every decoded frame through an extra cache canvas.");
+}
+if (!script.includes("orientation===6)ctx.rotate(-Math.PI/2)") ||
+    !script.includes("orientation===8)ctx.rotate(Math.PI/2)")) {
+  throw new Error("ReplayKit landscape rotations are not mapped to raw H.264 coordinates.");
 }
 if (!script.includes("decoderSignature===signature") || !script.includes("decoderSignature=signature")) {
   throw new Error("Orientation-only configuration packets unnecessarily reset the video decoder.");

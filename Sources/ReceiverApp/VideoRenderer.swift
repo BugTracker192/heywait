@@ -122,15 +122,23 @@ final class VideoRendererView: UIView {
     }
 
     private func transform(for orientation: UInt32) -> CGAffineTransform {
+        CGAffineTransform(rotationAngle: Self.rotationAngle(for: orientation))
+    }
+
+    static func rotationAngle(for orientation: UInt32) -> CGFloat {
         switch orientation {
         case 3, 4:
-            return CGAffineTransform(rotationAngle: .pi)
+            return .pi
         case 5, 6:
-            return CGAffineTransform(rotationAngle: .pi / 2)
+            // ReplayKit's portrait pixel buffer reaches the raw H.264 path
+            // with the inverse quarter-turn convention from UIKit's display
+            // coordinates. Applying +90 here makes matching landscape sides
+            // render 180 degrees apart on the two physical phones.
+            return -.pi / 2
         case 7, 8:
-            return CGAffineTransform(rotationAngle: -.pi / 2)
+            return .pi / 2
         default:
-            return .identity
+            return 0
         }
     }
 

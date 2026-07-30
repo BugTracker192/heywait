@@ -48,7 +48,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v2` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server or a perfectly synchronized mode switch. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
+The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v3` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server or a perfectly synchronized mode switch. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
 
 Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
@@ -87,7 +87,7 @@ The sender includes a nested Broadcast Upload Extension and an App Group. Instal
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 
 - `dev.screenshare.sender`
-- `dev.screenshare.sender.broadcast.v2`
+- `dev.screenshare.sender.broadcast.v3`
 - `group.dev.screenshare.sender`
 
 Update them consistently in `project.yml`, `Config/*.entitlements`, and `Sources/Shared/AppConstants.swift`.
@@ -117,7 +117,7 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 3. Choose quality and tap **Save browser mode**.
 4. Start the Screen Share broadcast and wait for the iOS countdown to finish.
 5. Now scan the QR or open the private URL in Safari, Chrome, Firefox, or another browser. The live extension must already be running when the browser opens the link.
-6. Add the page to the Home Screen with **Open as Web App** enabled, then launch that fresh shortcut. It opens fullscreen and follows sender portrait/landscape changes automatically. Tap the video once to unlock sound; a normal browser tab also uses that tap to request fullscreen and orientation locking.
+6. Add the page to the Home Screen with **Open as Web App** enabled, then launch that fresh shortcut. It opens fullscreen and follows sender portrait/landscape changes automatically. In a normal browser tab, use the top-left expand button to enter fullscreen. Tap once to unlock sound, double-tap to switch between fit/fill, or pinch to zoom up to 3×.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.
 
