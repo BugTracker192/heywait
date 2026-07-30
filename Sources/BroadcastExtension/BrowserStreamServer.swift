@@ -521,16 +521,15 @@ private final class BrowserHTTPClient {
           </button>
           <script>
             const key='\(accessKey)',stage=document.getElementById('stage');
-            const canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false});
+            const canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});
             const fallback=document.getElementById('fallback'),status=document.getElementById('status'),sound=document.getElementById('sound'),expand=document.getElementById('expand');
             const installedViewer=navigator.standalone===true
               ||matchMedia('(display-mode: fullscreen)').matches
               ||matchMedia('(display-mode: standalone)').matches;
             expand.hidden=installedViewer;
-            let decoder=null,decoderSignature='',latest=null,displayed=null,orientation=1,sourceWidth=0,sourceHeight=0,usingFallback=false;
+            let decoder=null,decoderSignature='',latest=null,displayed=null,orientation=1,usingFallback=false;
             let cachedWidth=0,cachedHeight=0,needsRedraw=false,streamGeneration=0,streamsActive=false,h264Abort=null;
             let audioContext=null,audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null;
-            let orientationGestureGranted=installedViewer,lastLockedAspect='';
             let viewScale=1,pinchStartDistance=0,pinchStartScale=1,lastStageTap=0;
 
             function resize(){
@@ -542,26 +541,26 @@ private final class BrowserHTTPClient {
                 canvas.width=w;canvas.height=h;needsRedraw=true;
               }
             }
-            function remoteLandscape(){
-              const quarter=[5,6,7,8].includes(orientation);
-              const width=quarter?sourceHeight:sourceWidth,height=quarter?sourceWidth:sourceHeight;
-              return width>height;
-            }
-            async function syncScreenOrientation(){
-              if(!orientationGestureGranted||!sourceWidth||!sourceHeight||!screen.orientation||typeof screen.orientation.lock!=='function')return;
-              const target=remoteLandscape()?'landscape':'portrait';
-              if(target===lastLockedAspect)return;
-              try{await screen.orientation.lock(target);lastLockedAspect=target}catch(_){}
+            function showFullscreenHelp(){
+              status.textContent='Open this page in Safari first (tap the compass icon), then press fullscreen.';
+              status.style.display='grid';
+              setTimeout(()=>{
+                status.textContent='Connecting to live screen...';
+                status.style.display=cachedWidth?'none':'grid';
+              },3200);
             }
             async function enterImmersive(){
-              orientationGestureGranted=true;
-              let target=document.documentElement;
+              let target=stage;
               let request=target.requestFullscreen||target.webkitRequestFullscreen;
-              if(!request){target=stage;request=stage.requestFullscreen||stage.webkitRequestFullscreen}
-              if(request&&!document.fullscreenElement&&!document.webkitFullscreenElement){
-                try{await Promise.resolve(request.call(target))}catch(_){}
+              if(!request){
+                target=document.documentElement;
+                request=target.requestFullscreen||target.webkitRequestFullscreen;
               }
-              await syncScreenOrientation();
+              if(request&&!document.fullscreenElement&&!document.webkitFullscreenElement){
+                try{await Promise.resolve(request.call(target))}catch(_){showFullscreenHelp()}
+              }else if(!request){
+                showFullscreenHelp();
+              }
               resize();
             }
             function fullscreenActive(){
@@ -638,11 +637,9 @@ private final class BrowserHTTPClient {
               const width=u32(v,0),height=u32(v,4),nextOrientation=u32(v,8);const nal=v[12],slen=u32(v,13);
               const sps=v.slice(17,17+slen),po=17+slen,plen=u32(v,po),pps=v.slice(po+4,po+4+plen);
               const codec='avc1.'+[sps[1],sps[2],sps[3]].map(x=>x.toString(16).padStart(2,'0')).join('');
-              sourceWidth=width;sourceHeight=height;
               if(orientation!==nextOrientation)viewScale=1;
               orientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1;
               needsRedraw=true;
-              syncScreenOrientation();
               const signature=codec+':'+width+'x'+height+':'+Array.from(sps)+':'+Array.from(pps);
               if(decoder&&decoder.state==='configured'&&decoderSignature===signature)return;
               if(decoder&&decoder.state!=='closed')decoder.close();
@@ -764,11 +761,10 @@ private final class BrowserHTTPClient {
             addEventListener('resize',resize,{passive:true});
             if(window.visualViewport)window.visualViewport.addEventListener('resize',resize,{passive:true});
             if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',()=>{needsRedraw=true;resize()});
-            document.addEventListener('fullscreenchange',()=>{needsRedraw=true;updateExpandButton();syncScreenOrientation();resize()});
-            document.addEventListener('webkitfullscreenchange',()=>{needsRedraw=true;updateExpandButton();syncScreenOrientation();resize()});
+            document.addEventListener('fullscreenchange',()=>{needsRedraw=true;updateExpandButton();resize()});
+            document.addEventListener('webkitfullscreenchange',()=>{needsRedraw=true;updateExpandButton();resize()});
             const releaseStreams=()=>{
               streamsActive=false;streamGeneration++;
-              orientationGestureGranted=installedViewer;lastLockedAspect='';
               audioEnabled=false;
               if(h264Abort)h264Abort.abort();
               if(audioAbort)audioAbort.abort();

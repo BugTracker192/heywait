@@ -85,9 +85,9 @@ enum StreamQuality: String, CaseIterable, Codable {
 
     var browserMaximumDimension: CGFloat {
         switch self {
-        case .balanced: return 1_280
-        case .sharp: return 1_600
-        case .dataSaver: return 960
+        case .balanced: return 960
+        case .sharp: return 1_280
+        case .dataSaver: return 720
         }
     }
 
@@ -101,9 +101,9 @@ enum StreamQuality: String, CaseIterable, Codable {
 
     var maximumEncodedDimension: Int32 {
         switch self {
-        case .balanced: return 1_280
-        case .sharp: return 1_600
-        case .dataSaver: return 960
+        case .balanced: return 960
+        case .sharp: return 1_280
+        case .dataSaver: return 720
         }
     }
 

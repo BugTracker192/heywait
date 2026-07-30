@@ -21,16 +21,8 @@ if (script.includes("height=u32(v,4);orientation=u32(v,8)")) {
 if (!script.includes("orientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1")) {
   throw new Error("Browser orientation packets are not updating the renderer state.");
 }
-if (!script.includes("screen.orientation.lock(remoteLandscape()?'landscape':'portrait')")) {
-  if (!script.includes("screen.orientation.lock(target);lastLockedAspect=target")) {
-    throw new Error("Browser fullscreen does not synchronize with the sender aspect.");
-  }
-}
-if (!script.includes("if(target===lastLockedAspect)return")) {
-  throw new Error("Browser orientation locking can repeat for the same aspect.");
-}
-if (!script.includes("orientationGestureGranted=true")) {
-  throw new Error("Browser orientation locking is not gated behind user activation.");
+if (script.includes("screen.orientation.lock(")) {
+  throw new Error("The viewer must not force a landscape side and create an orientation feedback loop.");
 }
 if (!source.includes("#sound{display:none}")) {
   throw new Error("The browser viewer exposes the fullscreen/audio gesture overlay.");
@@ -50,8 +42,11 @@ if (!script.includes("if(document.hidden)releaseStreams();else startStreams()"))
 if (script.includes("location.reload()")) {
   throw new Error("The browser viewer reloads and loses its orientation state after foregrounding.");
 }
-if (!script.includes("navigator.standalone===true") || !script.includes("orientationGestureGranted=installedViewer")) {
-  throw new Error("An installed browser viewer cannot restore orientation automatically.");
+if (!script.includes("navigator.standalone===true")) {
+  throw new Error("The browser viewer does not identify installed web-app mode.");
+}
+if (!script.includes("let target=stage") || !script.includes("showFullscreenHelp()")) {
+  throw new Error("Fullscreen does not target the live stage or explain the Camera preview limitation.");
 }
 if (!script.includes("displayed=latest;latest=null") || !script.includes("ctx.drawImage(displayed")) {
   throw new Error("The viewer does not preserve its last frame across canvas resizes.");

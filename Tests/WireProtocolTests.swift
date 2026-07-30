@@ -240,22 +240,22 @@ final class WireProtocolTests: XCTestCase {
 
     func testStreamQualityBoundsNativePhoneResolution() {
         let balanced = StreamQuality.balanced.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(balanced.width, 590)
-        XCTAssertEqual(balanced.height, 1280)
+        XCTAssertEqual(balanced.width, 442)
+        XCTAssertEqual(balanced.height, 960)
 
         let sharp = StreamQuality.sharp.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(sharp.width, 738)
-        XCTAssertEqual(sharp.height, 1600)
+        XCTAssertEqual(sharp.width, 590)
+        XCTAssertEqual(sharp.height, 1280)
 
         let saver = StreamQuality.dataSaver.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(saver.width, 442)
-        XCTAssertEqual(saver.height, 960)
+        XCTAssertEqual(saver.width, 332)
+        XCTAssertEqual(saver.height, 720)
     }
 
     func testStreamQualityScalesOlderPhoneResolutionToLowLatencyBound() {
         let dimensions = StreamQuality.balanced.encodedDimensions(sourceWidth: 750, sourceHeight: 1334)
-        XCTAssertEqual(dimensions.width, 718)
-        XCTAssertEqual(dimensions.height, 1280)
+        XCTAssertEqual(dimensions.width, 538)
+        XCTAssertEqual(dimensions.height, 960)
     }
 
     func testStreamQualityFrameRateTargets() {
@@ -310,7 +310,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v3"
+            "dev.screenshare.sender.broadcast.v4"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
