@@ -1,4 +1,5 @@
 import CoreMedia
+import CoreVideo
 import Foundation
 import ReplayKit
 
@@ -155,6 +156,19 @@ final class SampleHandler: RPBroadcastSampleHandler {
             key: RPVideoSampleOrientationKey as CFString,
             attachmentModeOut: nil
         )
-        return (value as? NSNumber)?.uint32Value ?? lastOrientation
+        let dimensions: (width: Int, height: Int)
+        if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            dimensions = (
+                CVPixelBufferGetWidth(imageBuffer),
+                CVPixelBufferGetHeight(imageBuffer)
+            )
+        } else {
+            dimensions = (0, 0)
+        }
+        return ReplayKitOrientationResolver.resolve(
+            attachedValue: (value as? NSNumber)?.uint32Value,
+            pixelWidth: dimensions.width,
+            pixelHeight: dimensions.height
+        )
     }
 }

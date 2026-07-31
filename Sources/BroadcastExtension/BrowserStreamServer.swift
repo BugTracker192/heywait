@@ -529,7 +529,7 @@ private final class BrowserHTTPClient {
               ||matchMedia('(display-mode: fullscreen)').matches
               ||matchMedia('(display-mode: standalone)').matches;
             expand.hidden=installedViewer;
-            let decoder=null,decoderSignature='',latest=null,displayed=null,orientation=1,usingFallback=false;
+            let decoder=null,decoderSignature='',decoderConfiguration=null,waitingForRecoveryKeyframe=false,latest=null,displayed=null,orientation=1,usingFallback=false;
             let cachedWidth=0,cachedHeight=0,needsRedraw=false,streamGeneration=0,streamsActive=false,h264Abort=null;
             const AudioContextClass=window.AudioContext||window.webkitAudioContext;
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
@@ -542,7 +542,10 @@ private final class BrowserHTTPClient {
               const viewport=window.visualViewport;
               const cssWidth=Math.max(1,Math.round(viewport?viewport.width:innerWidth));
               const cssHeight=Math.max(1,Math.round(viewport?viewport.height:innerHeight));
-              const d=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.round(cssWidth*d)),h=Math.max(1,Math.round(cssHeight*d));
+              // The encoded Balanced stream tops out at 960 px. Rendering it
+              // into a 2x Retina canvas only creates extra scaling/copy work
+              // before canvas.captureStream hands it to the native player.
+              const d=Math.min(devicePixelRatio||1,1.25),w=Math.max(1,Math.round(cssWidth*d)),h=Math.max(1,Math.round(cssHeight*d));
               if(canvas.width!==w||canvas.height!==h){
                 canvas.width=w;canvas.height=h;needsRedraw=true;
               }
@@ -673,8 +676,22 @@ private final class BrowserHTTPClient {
                 output:f=>{if(latest)latest.close();latest=f},
                 error:()=>startMJPEG(streamGeneration)
               });
-              decoder.configure({codec:codec,description:avcConfig(sps,pps,nal),codedWidth:width,codedHeight:height,optimizeForLatency:true,hardwareAcceleration:'prefer-hardware'});
+              decoderConfiguration={codec:codec,description:avcConfig(sps,pps,nal),codedWidth:width,codedHeight:height,optimizeForLatency:true,hardwareAcceleration:'prefer-hardware'};
+              decoder.configure(decoderConfiguration);
+              waitingForRecoveryKeyframe=false;
               decoderSignature=signature;
+            }
+            function resetDecoderAtKeyframe(){
+              if(!decoder||!decoderConfiguration)return false;
+              try{
+                decoder.reset();
+                decoder.configure(decoderConfiguration);
+                waitingForRecoveryKeyframe=false;
+                return true;
+              }catch(_){
+                startMJPEG(streamGeneration);
+                return false;
+              }
             }
             async function startH264(generation){
               const response=await fetch('/h264?k='+key+'&t='+Date.now(),{cache:'no-store',signal:h264Abort.signal});
@@ -689,7 +706,17 @@ private final class BrowserHTTPClient {
                   const view=data.subarray(offset),length=u32(view,9);if(view.length<13+length)break;
                   const type=view[0],timestamp=u64(view,1),payload=view.slice(13,13+length);offset+=13+length;
                   if(type===0)configure(payload);
-                  else if(decoder&&decoder.state==='configured'&&decoder.decodeQueueSize<8){
+                  else if(decoder&&decoder.state==='configured'){
+                    if(waitingForRecoveryKeyframe&&type!==1)continue;
+                    if(type===1&&(waitingForRecoveryKeyframe||decoder.decodeQueueSize>=6)){
+                      if(!resetDecoderAtKeyframe())continue;
+                    }else if(type!==1&&decoder.decodeQueueSize>=6){
+                      // Never discard a random H.264 reference frame and then
+                      // feed its dependent deltas to the decoder. Hold the last
+                      // displayed frame and resume cleanly at the next keyframe.
+                      waitingForRecoveryKeyframe=true;
+                      continue;
+                    }
                     decoder.decode(new EncodedVideoChunk({type:type===1?'key':'delta',timestamp:timestamp,data:payload}));
                   }
                 }
@@ -700,7 +727,7 @@ private final class BrowserHTTPClient {
               if(generation!==streamGeneration||usingFallback)return;usingFallback=true;
               if(h264Abort)h264Abort.abort();
               if(decoder&&decoder.state!=='closed')decoder.close();
-              decoder=null;decoderSignature='';
+              decoder=null;decoderConfiguration=null;decoderSignature='';waitingForRecoveryKeyframe=false;
               canvas.style.display='block';fallback.style.display='none';
               status.style.display=cachedWidth?'none':'grid';
               const connect=()=>{fallback.src='/stream?k='+key+'&t='+Date.now()};
@@ -803,7 +830,7 @@ private final class BrowserHTTPClient {
               fallback.removeAttribute('src');
               if(latest){latest.close();latest=null}
               if(decoder&&decoder.state!=='closed')decoder.close();
-              decoder=null;decoderSignature='';
+              decoder=null;decoderConfiguration=null;decoderSignature='';waitingForRecoveryKeyframe=false;
             };
             const startStreams=()=>{
               if(streamsActive)return;

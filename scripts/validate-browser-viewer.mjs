@@ -65,6 +65,14 @@ if (!script.includes("audioContext.createMediaStreamDestination()") ||
     !script.includes("audioDestination.stream.getAudioTracks()")) {
   throw new Error("Captured app audio is not attached to the native fullscreen video.");
 }
+if (!script.includes("Math.min(devicePixelRatio||1,1.25)")) {
+  throw new Error("The browser viewer is rendering into an oversized Retina canvas.");
+}
+if (!script.includes("waitingForRecoveryKeyframe") ||
+    !script.includes("resetDecoderAtKeyframe()") ||
+    script.includes("decoder.decodeQueueSize<8")) {
+  throw new Error("Decoder overload can still drop dependent H.264 frames.");
+}
 if (!script.includes("decoderSignature===signature") || !script.includes("decoderSignature=signature")) {
   throw new Error("Orientation-only configuration packets unnecessarily reset the video decoder.");
 }

@@ -48,7 +48,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v5` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server or a perfectly synchronized mode switch. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream and is attached to the live video used by iPhone Safari's native fullscreen player. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
+The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v6` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server or a perfectly synchronized mode switch. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream and is attached to the live video used by iPhone Safari's native fullscreen player. The browser viewer caps its live canvas near the encoded resolution and recovers decoder overload only at an H.264 keyframe, avoiding excess Retina-scale copies and corrupt dependent-frame drops. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
 
 Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
@@ -87,7 +87,7 @@ The sender includes a nested Broadcast Upload Extension and an App Group. Instal
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 
 - `dev.screenshare.sender`
-- `dev.screenshare.sender.broadcast.v5`
+- `dev.screenshare.sender.broadcast.v6`
 - `group.dev.screenshare.sender`
 
 Update them consistently in `project.yml`, `Config/*.entitlements`, and `Sources/Shared/AppConstants.swift`.
