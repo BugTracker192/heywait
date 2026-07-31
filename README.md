@@ -48,7 +48,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v4` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server or a perfectly synchronized mode switch. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
+The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v5` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server or a perfectly synchronized mode switch. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream and is attached to the live video used by iPhone Safari's native fullscreen player. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
 
 Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
@@ -87,7 +87,7 @@ The sender includes a nested Broadcast Upload Extension and an App Group. Instal
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 
 - `dev.screenshare.sender`
-- `dev.screenshare.sender.broadcast.v4`
+- `dev.screenshare.sender.broadcast.v5`
 - `group.dev.screenshare.sender`
 
 Update them consistently in `project.yml`, `Config/*.entitlements`, and `Sources/Shared/AppConstants.swift`.
@@ -117,7 +117,7 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 3. Choose quality and tap **Save browser mode**.
 4. Start the Screen Share broadcast and wait for the iOS countdown to finish.
 5. Now scan the QR. The Camera app first opens a preview browser; tap its bottom-right compass icon to open the page in the real Safari app. The live extension must already be running.
-6. In Safari, use the viewer's top-left expand button to enter fullscreen. Keep Rotation Lock off and physically turn the receiver to the same landscape side as the sender. The viewer intentionally does not call `screen.orientation.lock()` because forcing Safari's preferred side can flip the stream after it was already aligned. Tap once to unlock sound, double-tap to switch between fit/fill, or pinch to zoom up to 3×.
+6. In Safari, wait until a live frame is visible, then use the viewer's top-left expand button. The viewer feeds the live canvas and captured app audio into a real video element because iPhone Safari only supports native fullscreen for video—not arbitrary page elements. Keep Rotation Lock off. ReplayKit's EXIF orientation is applied once to the raw frame; Safari remains responsible for rotating the receiver viewport, avoiding the previous 360-degree feedback loop. Double-tap to switch between fit/fill, or pinch to zoom up to 3×.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.
 

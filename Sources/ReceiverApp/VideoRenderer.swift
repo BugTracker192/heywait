@@ -130,13 +130,12 @@ final class VideoRendererView: UIView {
         case 3, 4:
             return .pi
         case 5, 6:
-            // ReplayKit's portrait pixel buffer reaches the raw H.264 path
-            // with the inverse quarter-turn convention from UIKit's display
-            // coordinates. Applying +90 here makes matching landscape sides
-            // render 180 degrees apart on the two physical phones.
-            return -.pi / 2
-        case 7, 8:
+            // RPVideoSampleOrientationKey uses EXIF orientation values.
+            // EXIF 5/6 are clockwise quarter-turns.
             return .pi / 2
+        case 7, 8:
+            // EXIF 7/8 are counter-clockwise quarter-turns.
+            return -.pi / 2
         default:
             return 0
         }

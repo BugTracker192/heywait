@@ -27,7 +27,7 @@ if (script.includes("screen.orientation.lock(")) {
 if (!source.includes("#sound{display:none}")) {
   throw new Error("The browser viewer exposes the fullscreen/audio gesture overlay.");
 }
-if (!script.includes("stage.addEventListener('click',async()=>")) {
+if (!script.includes("stage.addEventListener('click',()=>")) {
   throw new Error("The browser viewer does not provide an unobtrusive activation gesture.");
 }
 if (!source.includes('id="expand"') || !script.includes("expand.addEventListener('click'")) {
@@ -45,8 +45,10 @@ if (script.includes("location.reload()")) {
 if (!script.includes("navigator.standalone===true")) {
   throw new Error("The browser viewer does not identify installed web-app mode.");
 }
-if (!script.includes("let target=stage") || !script.includes("showFullscreenHelp()")) {
-  throw new Error("Fullscreen does not target the live stage or explain the Camera preview limitation.");
+if (!source.includes('<video id="nativeVideo"') ||
+    !script.includes("canvas.captureStream(60)") ||
+    !script.includes("nativeVideo.webkitEnterFullscreen")) {
+  throw new Error("iPhone fullscreen is not backed by a live native video element.");
 }
 if (!script.includes("displayed=latest;latest=null") || !script.includes("ctx.drawImage(displayed")) {
   throw new Error("The viewer does not preserve its last frame across canvas resizes.");
@@ -54,9 +56,14 @@ if (!script.includes("displayed=latest;latest=null") || !script.includes("ctx.dr
 if (script.includes("frameCache")) {
   throw new Error("The viewer is still copying every decoded frame through an extra cache canvas.");
 }
-if (!script.includes("orientation===6)ctx.rotate(-Math.PI/2)") ||
-    !script.includes("orientation===8)ctx.rotate(Math.PI/2)")) {
-  throw new Error("ReplayKit landscape rotations are not mapped to raw H.264 coordinates.");
+if (!script.includes("orientation===6)ctx.rotate(Math.PI/2)") ||
+    !script.includes("orientation===8)ctx.rotate(-Math.PI/2)")) {
+  throw new Error("ReplayKit EXIF landscape rotations are not mapped correctly.");
+}
+if (!script.includes("audioContext.createMediaStreamDestination()") ||
+    !script.includes("source.connect(audioDestination)") ||
+    !script.includes("audioDestination.stream.getAudioTracks()")) {
+  throw new Error("Captured app audio is not attached to the native fullscreen video.");
 }
 if (!script.includes("decoderSignature===signature") || !script.includes("decoderSignature=signature")) {
   throw new Error("Orientation-only configuration packets unnecessarily reset the video decoder.");

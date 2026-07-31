@@ -310,7 +310,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v4"
+            "dev.screenshare.sender.broadcast.v5"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
@@ -439,12 +439,12 @@ final class WireProtocolTests: XCTestCase {
     func testRawReplayKitQuarterTurnsMatchReceiverDisplayCoordinates() {
         XCTAssertEqual(
             VideoRendererView.rotationAngle(for: 6),
-            -.pi / 2,
+            .pi / 2,
             accuracy: 0.0001
         )
         XCTAssertEqual(
             VideoRendererView.rotationAngle(for: 8),
-            .pi / 2,
+            -.pi / 2,
             accuracy: 0.0001
         )
         XCTAssertEqual(
