@@ -36,8 +36,8 @@ if (!source.includes('id="expand"') || !script.includes("expand.addEventListener
 if (!script.includes("toggleFit()") || !script.includes("pinchStartScale*touchDistance")) {
   throw new Error("The browser viewer does not provide fill and pinch zoom controls.");
 }
-if (!script.includes("if(document.hidden)releaseStreams();else startStreams()")) {
-  throw new Error("A backgrounded browser viewer does not release its stream connections.");
+if (!script.includes("if(document.hidden){if(!nativeFullscreen)releaseStreams()}")) {
+  throw new Error("Browser visibility handling can still terminate a native fullscreen stream.");
 }
 if (script.includes("location.reload()")) {
   throw new Error("The browser viewer reloads and loses its orientation state after foregrounding.");
@@ -50,8 +50,11 @@ if (!source.includes('<video id="nativeVideo"') ||
     !script.includes("nativeVideo.webkitEnterFullscreen")) {
   throw new Error("iPhone fullscreen is not backed by a live native video element.");
 }
-if (!script.includes("displayed=latest;latest=null") || !script.includes("ctx.drawImage(displayed")) {
-  throw new Error("The viewer does not preserve its last frame across canvas resizes.");
+if (!script.includes("output:presentFrame") ||
+    !script.includes("function presentFrame(frame)") ||
+    !script.includes("ctx.drawImage(displayed") ||
+    !script.includes("nativeTrack.requestFrame()")) {
+  throw new Error("Decoded frames do not directly update the native fullscreen stream.");
 }
 if (script.includes("frameCache")) {
   throw new Error("The viewer is still copying every decoded frame through an extra cache canvas.");

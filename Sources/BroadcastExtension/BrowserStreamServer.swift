@@ -570,7 +570,7 @@ private final class BrowserHTTPClient {
               ||matchMedia('(display-mode: fullscreen)').matches
               ||matchMedia('(display-mode: standalone)').matches;
             expand.hidden=installedViewer;
-            let decoder=null,decoderSignature='',latest=null,displayed=null,orientation=1,usingFallback=false;
+            let decoder=null,decoderSignature='',displayed=null,orientation=1,usingFallback=false;
             let cachedWidth=0,cachedHeight=0,needsRedraw=false,freshFrameReady=false,streamGeneration=0,streamsActive=false,h264Abort=null;
             const AudioContextClass=window.AudioContext||window.webkitAudioContext;
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
@@ -618,9 +618,12 @@ private final class BrowserHTTPClient {
                 try{
                   nativeVideo.muted=false;
                   nativeVideo.volume=1;
+                  // Treat the page as live before WebKit hides it. Some iPhone
+                  // releases dispatch visibilitychange before beginfullscreen.
+                  nativeFullscreen=true;
                   nativeRequest.call(nativeVideo);
                   return;
-                }catch(_){}
+                }catch(_){nativeFullscreen=false}
               }
               let target=stage,request=target.requestFullscreen||target.webkitRequestFullscreen;
               if(request&&!document.fullscreenElement&&!document.webkitFullscreenElement){
@@ -634,7 +637,7 @@ private final class BrowserHTTPClient {
               resize();
             }
             function fullscreenActive(){
-              return !!(document.fullscreenElement||document.webkitFullscreenElement);
+              return nativeFullscreen||!!(document.fullscreenElement||document.webkitFullscreenElement);
             }
             function updateExpandButton(){
               expand.hidden=installedViewer||fullscreenActive();
@@ -665,32 +668,38 @@ private final class BrowserHTTPClient {
               enterImmersive();
               updateExpandButton();
             }
+            function drawDisplayed(){
+              if(!displayed||!cachedWidth||!cachedHeight)return;
+              const w=cachedWidth,h=cachedHeight;
+              const quarter=[5,6,7,8].includes(orientation),dw=quarter?h:w,dh=quarter?w:h;
+              const scale=Math.min(canvas.width/dw,canvas.height/dh)*viewScale;
+              ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+              ctx.translate(canvas.width/2,canvas.height/2);ctx.scale(scale,scale);
+              if(orientation===2)ctx.scale(-1,1);
+              else if(orientation===3)ctx.rotate(Math.PI);
+              else if(orientation===4)ctx.scale(1,-1);
+              else if(orientation===5){ctx.rotate(Math.PI/2);ctx.scale(1,-1)}
+              else if(orientation===6)ctx.rotate(Math.PI/2);
+              else if(orientation===7){ctx.rotate(-Math.PI/2);ctx.scale(1,-1)}
+              else if(orientation===8)ctx.rotate(-Math.PI/2);
+              ctx.drawImage(displayed,-w/2,-h/2,w,h);
+              ensureNativeMedia();
+              const nativeTrack=canvasStream&&canvasStream.getVideoTracks()[0];
+              if(nativeTrack&&typeof nativeTrack.requestFrame==='function')nativeTrack.requestFrame();
+              needsRedraw=false;
+            }
+            function presentFrame(frame){
+              if(displayed)displayed.close();
+              displayed=frame;
+              cachedWidth=displayed.displayWidth||displayed.codedWidth;
+              cachedHeight=displayed.displayHeight||displayed.codedHeight;
+              freshFrameReady=true;status.style.display='none';
+              resize();
+              drawDisplayed();
+            }
             function render(){
               resize();
-              if(latest){
-                if(displayed)displayed.close();
-                displayed=latest;latest=null;
-                cachedWidth=displayed.displayWidth||displayed.codedWidth;
-                cachedHeight=displayed.displayHeight||displayed.codedHeight;
-                freshFrameReady=true;needsRedraw=true;status.style.display='none';
-              }
-              if(needsRedraw&&displayed&&cachedWidth&&cachedHeight){
-                const w=cachedWidth,h=cachedHeight;
-                const quarter=[5,6,7,8].includes(orientation),dw=quarter?h:w,dh=quarter?w:h;
-                const scale=Math.min(canvas.width/dw,canvas.height/dh)*viewScale;
-                ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
-                ctx.translate(canvas.width/2,canvas.height/2);ctx.scale(scale,scale);
-                if(orientation===2)ctx.scale(-1,1);
-                else if(orientation===3)ctx.rotate(Math.PI);
-                else if(orientation===4)ctx.scale(1,-1);
-                else if(orientation===5){ctx.rotate(Math.PI/2);ctx.scale(1,-1)}
-                else if(orientation===6)ctx.rotate(Math.PI/2);
-                else if(orientation===7){ctx.rotate(-Math.PI/2);ctx.scale(1,-1)}
-                else if(orientation===8)ctx.rotate(-Math.PI/2);
-                ctx.drawImage(displayed,-w/2,-h/2,w,h);
-                ensureNativeMedia();
-                needsRedraw=false;
-              }
+              if(needsRedraw)drawDisplayed();
               requestAnimationFrame(render);
             }
             requestAnimationFrame(render);
@@ -714,7 +723,11 @@ private final class BrowserHTTPClient {
               if(decoder&&decoder.state==='configured'&&decoderSignature===signature)return;
               if(decoder&&decoder.state!=='closed')decoder.close();
               decoder=new VideoDecoder({
-                output:f=>{if(latest)latest.close();latest=f},
+                // Draw from the decoder callback as well as rAF. WebKit can
+                // suspend the page animation clock while its native video
+                // player is fullscreen, but decoded frames must keep feeding
+                // the captured canvas stream.
+                output:presentFrame,
                 error:()=>startMJPEG(streamGeneration)
               });
               decoder.configure({codec:codec,description:avcConfig(sps,pps,nal),codedWidth:width,codedHeight:height,optimizeForLatency:true,hardwareAcceleration:'prefer-hardware'});
@@ -837,15 +850,14 @@ private final class BrowserHTTPClient {
             if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',()=>{needsRedraw=true;resize()});
             document.addEventListener('fullscreenchange',()=>{needsRedraw=true;updateExpandButton();resize()});
             document.addEventListener('webkitfullscreenchange',()=>{needsRedraw=true;updateExpandButton();resize()});
-            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;expand.hidden=true});
-            nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;updateExpandButton();needsRedraw=true;resize()});
+            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;expand.hidden=true;if(!streamsActive)startStreams()});
+            nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;updateExpandButton();needsRedraw=true;resize();startStreams()});
             const releaseStreams=()=>{
               streamsActive=false;streamGeneration++;
               audioEnabled=false;
               if(h264Abort)h264Abort.abort();
               if(audioAbort)audioAbort.abort();
               fallback.removeAttribute('src');
-              if(latest){latest.close();latest=null}
               if(decoder&&decoder.state!=='closed')decoder.close();
               decoder=null;decoderSignature='';freshFrameReady=false;
             };
@@ -871,9 +883,10 @@ private final class BrowserHTTPClient {
               }
             };
             document.addEventListener('visibilitychange',()=>{
-              if(document.hidden)releaseStreams();else startStreams();
+              if(document.hidden){if(!nativeFullscreen)releaseStreams()}
+              else startStreams();
             });
-            addEventListener('pagehide',releaseStreams);
+            addEventListener('pagehide',()=>{if(!nativeFullscreen)releaseStreams()});
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             startStreams();
           </script>

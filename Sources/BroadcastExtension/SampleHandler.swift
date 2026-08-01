@@ -11,6 +11,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var browserH264Encoder: H264Encoder?
     private var isPaused = false
     private var lastOrientation: UInt32 = 1
+    private var lastOrientationDiagnostic = ""
     private var isFinishing = false
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
@@ -170,10 +171,21 @@ final class SampleHandler: RPBroadcastSampleHandler {
         } else {
             dimensions = (0, 0)
         }
-        return ReplayKitOrientationResolver.resolve(
-            attachedValue: (value as? NSNumber)?.uint32Value,
+        let rawOrientation = (value as? NSNumber)?.uint32Value
+        let resolvedOrientation = ReplayKitOrientationResolver.resolve(
+            attachedValue: rawOrientation,
             pixelWidth: dimensions.width,
             pixelHeight: dimensions.height
         )
+        let rawDescription = rawOrientation.map { String($0) } ?? "none"
+        let diagnostic = "ReplayKit \(dimensions.width)x\(dimensions.height) raw \(rawDescription) -> sent \(resolvedOrientation)"
+        if diagnostic != lastOrientationDiagnostic {
+            lastOrientationDiagnostic = diagnostic
+            UserDefaults(suiteName: AppConstants.appGroup)?.set(
+                diagnostic,
+                forKey: AppConstants.orientationDiagnosticKey
+            )
+        }
+        return resolvedOrientation
     }
 }

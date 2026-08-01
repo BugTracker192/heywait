@@ -392,6 +392,12 @@ struct SenderRootView: View {
             Text(buildLabel)
                 .font(.caption2.monospaced())
                 .foregroundStyle(.tertiary)
+            if let orientationDiagnostic {
+                Text(orientationDiagnostic)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -406,6 +412,11 @@ struct SenderRootView: View {
             forInfoDictionaryKey: "CFBundleVersion"
         ) as? String ?? "?"
         return "v\(version) (\(build)) · browser port \(AppConstants.browserViewerPort)"
+    }
+
+    private var orientationDiagnostic: String? {
+        UserDefaults(suiteName: AppConstants.appGroup)?
+            .string(forKey: AppConstants.orientationDiagnosticKey)
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {

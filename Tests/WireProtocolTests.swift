@@ -310,7 +310,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v7"
+            "dev.screenshare.sender.broadcast.v8"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
@@ -516,6 +516,41 @@ final class WireProtocolTests: XCTestCase {
                 pixelHeight: 1_440
             ),
             1
+        )
+    }
+
+    func testReplayKitOrientationRepairsPortraitShapedLandscapeBuffers() {
+        XCTAssertEqual(
+            ReplayKitOrientationResolver.resolve(
+                attachedValue: 6,
+                pixelWidth: 664,
+                pixelHeight: 1_440
+            ),
+            8
+        )
+        XCTAssertEqual(
+            ReplayKitOrientationResolver.resolve(
+                attachedValue: 8,
+                pixelWidth: 664,
+                pixelHeight: 1_440
+            ),
+            6
+        )
+        XCTAssertEqual(
+            ReplayKitOrientationResolver.resolve(
+                attachedValue: 5,
+                pixelWidth: 664,
+                pixelHeight: 1_440
+            ),
+            7
+        )
+        XCTAssertEqual(
+            ReplayKitOrientationResolver.resolve(
+                attachedValue: 7,
+                pixelWidth: 664,
+                pixelHeight: 1_440
+            ),
+            5
         )
     }
 

@@ -6,29 +6,28 @@ enum ReplayKitOrientationResolver {
         pixelWidth: Int,
         pixelHeight: Int
     ) -> UInt32 {
-        if let attachedValue, (1...8).contains(attachedValue) {
-            // iOS 16 can keep reporting a valid-looking `.up`/`.down`
-            // attachment after ReplayKit changes to a physically wide
-            // buffer. On affected devices the pixels in that wide buffer are
-            // stored on the opposite landscape side, so trusting the stale
-            // value leaves both the native and browser viewers upside down.
-            // Repair only the wide, non-quarter-turn case; genuine EXIF 5...8
-            // metadata still describes a portrait-shaped buffer correctly.
-            guard pixelWidth > pixelHeight else { return attachedValue }
-            switch attachedValue {
-            case 1: return 3
-            case 2: return 4
-            case 3: return 1
-            case 4: return 2
-            default: return attachedValue
-            }
-        }
+        let raw = attachedValue.flatMap { (1...8).contains($0) ? $0 : nil } ?? 1
+        let quarterTurn = (5...8).contains(raw)
+        let displayWidth = quarterTurn ? pixelHeight : pixelWidth
+        let displayHeight = quarterTurn ? pixelWidth : pixelHeight
 
-        // RPVideoSampleOrientationKey is deprecated and can be absent from
-        // Broadcast Upload samples. On the affected iOS 16 ReplayKit path,
-        // portrait buffers arrive upright while an untagged wide buffer is
-        // stored with its display origin inverted. Normalize that fallback at
-        // the sender so native and browser receivers get one stable value.
-        return pixelWidth > pixelHeight ? 3 : 1
+        guard displayWidth > displayHeight else { return raw }
+
+        // The affected ReplayKit upload path is exactly 180 degrees wrong for
+        // landscape, but it can express that landscape with any EXIF family:
+        // a wide 1...4 buffer or a portrait-shaped 5...8 buffer. Compose a
+        // half-turn with every landscape form so an on-screen M stays M rather
+        // than becoming W on both receivers.
+        switch raw {
+        case 1: return 3
+        case 2: return 4
+        case 3: return 1
+        case 4: return 2
+        case 5: return 7
+        case 6: return 8
+        case 7: return 5
+        case 8: return 6
+        default: return raw
+        }
     }
 }
