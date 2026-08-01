@@ -305,12 +305,12 @@ struct SenderRootView: View {
                     model.deliveryMode == .browser
                         ? (
                             model.quality == .dataSaver
-                                ? "30 FPS hardware target for weaker Wi-Fi."
+                                ? "60 FPS low-resolution target for the smoothest delivery."
                                 : "60 FPS hardware H.264 target with automatic JPEG fallback."
                         )
                         : (
                             model.quality == .dataSaver
-                                ? "30 FPS target for weaker Wi-Fi."
+                                ? "60 FPS low-resolution target for the smoothest delivery."
                                 : "60 FPS target on supported sender hardware."
                         )
                 )

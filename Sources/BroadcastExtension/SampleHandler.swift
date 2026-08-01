@@ -126,10 +126,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 browserH264Encoder?.requestKeyFrame()
             }
 
-            if let browserServer, browserServer.hasH264Clients, let browserH264Encoder {
-                browserH264Encoder.encode(sampleBuffer, orientation: orientation)
-            } else if let browserServer, browserServer.hasMJPEGClients, let browserEncoder {
-                browserEncoder.encode(sampleBuffer, orientation: orientation)
+            if let browserServer {
+                if browserServer.hasH264Clients {
+                    if browserServer.canEncodeNextH264Frame,
+                       let browserH264Encoder {
+                        browserH264Encoder.encode(sampleBuffer, orientation: orientation)
+                    }
+                } else if browserServer.hasMJPEGClients, let browserEncoder {
+                    browserEncoder.encode(sampleBuffer, orientation: orientation)
+                }
             }
 
             if transport?.canEncodeNextFrame == true {

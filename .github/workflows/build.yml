@@ -95,7 +95,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "${receiver_info}")" = 'false'
           test -x "${broadcast_app}/ScreenShareBroadcast"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${broadcast_info}")" = 'com.apple.broadcast-services-upload'
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${broadcast_info}")" = 'dev.screenshare.sender.broadcast.v6'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${broadcast_info}")" = 'dev.screenshare.sender.broadcast.v7'
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionAttributes:RPBroadcastProcessMode' "${broadcast_info}")" = 'RPBroadcastProcessModeSampleBuffer'
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' build/embedded-entitlements/sender.plist)" = 'group.dev.screenshare.sender'
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' build/embedded-entitlements/broadcast.plist)" = 'group.dev.screenshare.sender'

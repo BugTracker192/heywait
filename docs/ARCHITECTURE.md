@@ -63,7 +63,7 @@ The header exposes packet type, sequence, and ciphertext length to the local net
 ## Latency controls
 
 - VideoToolbox uses real-time mode, no B-frame reordering, maximum frame delay zero, a one-second keyframe interval, and H.264 Baseline.
-- Balanced and Sharp target 60 FPS; Data Saver targets 30 FPS. VideoToolbox treats the configured rate as a hint and actual capture/delivery can be lower.
+- Sharp, Balanced, and Fast target 60 FPS. Fast reduces encoded dimensions and bitrate rather than motion cadence. VideoToolbox treats the configured rate as a hint and actual capture/delivery can be lower.
 - TCP uses `noDelay` and keepalive.
 - Up to sixteen encoded video frames may be outstanding, covering a quarter-second completion-delay burst at the 60 FPS target without stalling capture. ReplayKit samples are skipped before encoding only when that bounded window is full.
 - Up to eight encrypted sends are submitted to Network.framework in one ordered pipeline. Completion callbacks release frame-window capacity; they no longer serialize every send.

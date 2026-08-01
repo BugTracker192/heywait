@@ -11,7 +11,7 @@ The repository has no runtime binary dependencies. XcodeGen creates the project 
 ## What is implemented
 
 - Full-display ReplayKit capture from the sender, including other apps, orientation changes, and app/game audio.
-- Hardware H.264 encoding through VideoToolbox with 60 FPS targets for Balanced/Sharp and 30 FPS for Data Saver, with quality-specific resolution bounds to stay within ReplayKit's extension memory budget.
+- Hardware H.264 encoding through VideoToolbox with 60 FPS targets for Sharp, Balanced, and Fast; Fast lowers resolution instead of frame rate to keep motion responsive within ReplayKit's extension budget.
 - Hardware-backed low-delay display with `AVSampleBufferDisplayLayer`.
 - Bonjour discovery, automatic reconnect, TCP no-delay, keepalive, and bounded pre-encode backpressure that skips uncoded capture samples without breaking H.264 reference frames.
 - 16-character local pairing code and ChaCha20-Poly1305 authenticated encryption for every control, video, and app-audio payload.
@@ -87,7 +87,7 @@ The sender includes a nested Broadcast Upload Extension and an App Group. Instal
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 
 - `dev.screenshare.sender`
-- `dev.screenshare.sender.broadcast.v6`
+- `dev.screenshare.sender.broadcast.v7`
 - `group.dev.screenshare.sender`
 
 Update them consistently in `project.yml`, `Config/*.entitlements`, and `Sources/Shared/AppConstants.swift`.

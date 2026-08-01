@@ -63,7 +63,7 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return "Balanced"
         case .sharp: return "Sharp"
-        case .dataSaver: return "Data Saver"
+        case .dataSaver: return "Fast"
         }
     }
 
@@ -71,7 +71,7 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return 60
         case .sharp: return 60
-        case .dataSaver: return 30
+        case .dataSaver: return 60
         }
     }
 
@@ -79,15 +79,15 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return 24
         case .sharp: return 30
-        case .dataSaver: return 15
+        case .dataSaver: return 30
         }
     }
 
     var browserMaximumDimension: CGFloat {
         switch self {
         case .balanced: return 960
-        case .sharp: return 1_280
-        case .dataSaver: return 720
+        case .sharp: return 1_080
+        case .dataSaver: return 540
         }
     }
 
@@ -102,8 +102,8 @@ enum StreamQuality: String, CaseIterable, Codable {
     var maximumEncodedDimension: Int32 {
         switch self {
         case .balanced: return 960
-        case .sharp: return 1_280
-        case .dataSaver: return 720
+        case .sharp: return 1_080
+        case .dataSaver: return 540
         }
     }
 
@@ -140,11 +140,11 @@ enum StreamQuality: String, CaseIterable, Codable {
         let pixels = max(1, Int(width) * Int(height))
         let bitsPerPixel: Double
         switch self {
-        case .balanced: bitsPerPixel = 0.085
+        case .balanced: bitsPerPixel = 0.10
         case .sharp: bitsPerPixel = 0.14
-        case .dataSaver: bitsPerPixel = 0.045
+        case .dataSaver: bitsPerPixel = 0.09
         }
-        return min(12_000_000, max(1_200_000, Int(Double(pixels) * Double(framesPerSecond) * bitsPerPixel)))
+        return min(8_000_000, max(800_000, Int(Double(pixels) * Double(framesPerSecond) * bitsPerPixel)))
     }
 
     private func evenDimension(_ value: Int32) -> Int32 {

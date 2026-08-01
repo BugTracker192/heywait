@@ -244,12 +244,12 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(balanced.height, 960)
 
         let sharp = StreamQuality.sharp.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(sharp.width, 590)
-        XCTAssertEqual(sharp.height, 1280)
+        XCTAssertEqual(sharp.width, 498)
+        XCTAssertEqual(sharp.height, 1080)
 
         let saver = StreamQuality.dataSaver.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(saver.width, 332)
-        XCTAssertEqual(saver.height, 720)
+        XCTAssertEqual(saver.width, 248)
+        XCTAssertEqual(saver.height, 540)
     }
 
     func testStreamQualityScalesOlderPhoneResolutionToLowLatencyBound() {
@@ -261,10 +261,10 @@ final class WireProtocolTests: XCTestCase {
     func testStreamQualityFrameRateTargets() {
         XCTAssertEqual(StreamQuality.balanced.framesPerSecond, 60)
         XCTAssertEqual(StreamQuality.sharp.framesPerSecond, 60)
-        XCTAssertEqual(StreamQuality.dataSaver.framesPerSecond, 30)
+        XCTAssertEqual(StreamQuality.dataSaver.framesPerSecond, 60)
         XCTAssertEqual(StreamQuality.balanced.browserFramesPerSecond, 24)
         XCTAssertEqual(StreamQuality.sharp.browserFramesPerSecond, 30)
-        XCTAssertEqual(StreamQuality.dataSaver.browserFramesPerSecond, 15)
+        XCTAssertEqual(StreamQuality.dataSaver.browserFramesPerSecond, 30)
     }
 
     func testTransportWindowCoversQuarterSecondAtTargetFrameRate() {
@@ -310,7 +310,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v6"
+            "dev.screenshare.sender.broadcast.v7"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
@@ -470,6 +470,33 @@ final class WireProtocolTests: XCTestCase {
                 pixelHeight: 664
             ),
             8
+        )
+    }
+
+    func testReplayKitOrientationRepairsStaleWideUpAndDownMetadata() {
+        XCTAssertEqual(
+            ReplayKitOrientationResolver.resolve(
+                attachedValue: 1,
+                pixelWidth: 1_440,
+                pixelHeight: 664
+            ),
+            3
+        )
+        XCTAssertEqual(
+            ReplayKitOrientationResolver.resolve(
+                attachedValue: 3,
+                pixelWidth: 1_440,
+                pixelHeight: 664
+            ),
+            1
+        )
+        XCTAssertEqual(
+            ReplayKitOrientationResolver.resolve(
+                attachedValue: 1,
+                pixelWidth: 664,
+                pixelHeight: 1_440
+            ),
+            1
         )
     }
 

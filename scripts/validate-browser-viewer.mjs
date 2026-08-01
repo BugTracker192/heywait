@@ -68,10 +68,18 @@ if (!script.includes("audioContext.createMediaStreamDestination()") ||
 if (!script.includes("Math.min(devicePixelRatio||1,1.25)")) {
   throw new Error("The browser viewer is rendering into an oversized Retina canvas.");
 }
-if (!script.includes("waitingForRecoveryKeyframe") ||
-    !script.includes("resetDecoderAtKeyframe()") ||
-    script.includes("decoder.decodeQueueSize<8")) {
-  throw new Error("Decoder overload can still drop dependent H.264 frames.");
+if (script.includes("waitingForRecoveryKeyframe") ||
+    script.includes("resetDecoderAtKeyframe()") ||
+    script.includes("decoder.decodeQueueSize")) {
+  throw new Error("The browser decoder still contains freeze-inducing queue resets.");
+}
+if (!source.includes("canEncodeNextH264Frame") ||
+    !source.includes("outstanding >= 2")) {
+  throw new Error("Browser backpressure is not applied before H.264 encoding.");
+}
+if (!script.includes("if(!freshFrameReady){showFullscreenHelp();return}") ||
+    source.includes("            ensureNativeMedia();\n            startStreams();")) {
+  throw new Error("Native fullscreen can still start from a stale canvas frame.");
 }
 if (!script.includes("decoderSignature===signature") || !script.includes("decoderSignature=signature")) {
   throw new Error("Orientation-only configuration packets unnecessarily reset the video decoder.");

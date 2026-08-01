@@ -20,6 +20,7 @@ final class BrowserStreamServer {
     private var streamingClientCount = 0
     private var h264ClientCount = 0
     private var mjpegClientCount = 0
+    private var h264BackpressuredClients: Set<ObjectIdentifier> = []
     private var latestJPEG: Data?
 
     init(accessKey: String) {
@@ -36,6 +37,12 @@ final class BrowserStreamServer {
         clientCountLock.lock()
         defer { clientCountLock.unlock() }
         return h264ClientCount > 0
+    }
+
+    var canEncodeNextH264Frame: Bool {
+        clientCountLock.lock()
+        defer { clientCountLock.unlock() }
+        return h264ClientCount > 0 && h264BackpressuredClients.isEmpty
     }
 
     var hasMJPEGClients: Bool {
@@ -176,6 +183,7 @@ final class BrowserStreamServer {
                 if previous == .h264 {
                     self.streamingClientCount -= 1
                     self.h264ClientCount -= 1
+                    self.h264BackpressuredClients.remove(identifier)
                 } else if previous == .mjpeg {
                     self.streamingClientCount -= 1
                     self.mjpegClientCount -= 1
@@ -204,9 +212,23 @@ final class BrowserStreamServer {
         client.onNeedsH264KeyFrame = { [weak self] in
             self?.onH264ClientReady?()
         }
+        client.onH264BackpressureChange = { [weak self] isBackpressured in
+            guard let self else { return }
+            self.clientCountLock.lock()
+            if isBackpressured {
+                self.h264BackpressuredClients.insert(identifier)
+            } else {
+                self.h264BackpressuredClients.remove(identifier)
+            }
+            self.clientCountLock.unlock()
+        }
         client.onStop = { [weak self, weak client] in
             guard let self, let client else { return }
-            self.clients.removeValue(forKey: ObjectIdentifier(client))
+            let stoppedIdentifier = ObjectIdentifier(client)
+            self.clientCountLock.lock()
+            self.h264BackpressuredClients.remove(stoppedIdentifier)
+            self.clientCountLock.unlock()
+            self.clients.removeValue(forKey: stoppedIdentifier)
         }
         client.start()
     }
@@ -232,6 +254,7 @@ final class BrowserStreamServer {
         streamingClientCount = 0
         h264ClientCount = 0
         mjpegClientCount = 0
+        h264BackpressuredClients.removeAll()
         clientCountLock.unlock()
     }
 }
@@ -239,6 +262,7 @@ final class BrowserStreamServer {
 private final class BrowserHTTPClient {
     var onStreamingChange: ((BrowserStreamKind?, BrowserStreamKind?) -> Void)?
     var onNeedsH264KeyFrame: (() -> Void)?
+    var onH264BackpressureChange: ((Bool) -> Void)?
     var onStop: (() -> Void)?
 
     private let connection: NWConnection
@@ -249,6 +273,7 @@ private final class BrowserHTTPClient {
     private var sendPending = false
     private var h264SendQueue: [Data] = []
     private var h264SendPending = false
+    private var h264Backpressured = false
     private var audioSendQueue: [Data] = []
     private var audioSendPending = false
     private var isAwaitingH264KeyFrame = true
@@ -311,17 +336,19 @@ private final class BrowserHTTPClient {
         }
         payload.append(BrowserH264Wire.framePacket(frame))
 
-        guard h264SendQueue.count < 10 else {
-            // A suspended/background browser cannot drain a real-time video
-            // queue. Release it instead of letting a stale tab permanently
-            // consume one of the extension's bounded connections.
-            queue.async { [weak self] in
-                self?.stop()
-            }
+        guard h264SendQueue.count < 6 else {
+            // Do not tear down the page and make Safari reconnect. Drop the
+            // unsent dependency chain, ask VideoToolbox for a fresh key frame,
+            // and resume the same HTTP stream immediately.
+            h264SendQueue.removeAll(keepingCapacity: true)
+            isAwaitingH264KeyFrame = true
+            updateH264Backpressure()
+            onNeedsH264KeyFrame?()
             return
         }
         h264SendQueue.append(BrowserH264Wire.chunk(payload))
         sendNextH264Chunk()
+        updateH264Backpressure()
     }
 
     func publish(audio frame: AudioPCMFrame) {
@@ -340,6 +367,7 @@ private final class BrowserHTTPClient {
             self.streamKind = nil
             onStreamingChange?(streamKind, nil)
         }
+        setH264Backpressured(false)
         connection.stateUpdateHandler = nil
         connection.cancel()
         onStop?()
@@ -354,6 +382,7 @@ private final class BrowserHTTPClient {
         }
         h264SendPending = true
         let chunk = h264SendQueue.removeFirst()
+        updateH264Backpressure()
         connection.send(content: chunk, completion: .contentProcessed { [weak self] error in
             guard let self else { return }
             self.h264SendPending = false
@@ -361,8 +390,20 @@ private final class BrowserHTTPClient {
                 self.stop()
             } else {
                 self.sendNextH264Chunk()
+                self.updateH264Backpressure()
             }
         })
+    }
+
+    private func updateH264Backpressure() {
+        let outstanding = h264SendQueue.count + (h264SendPending ? 1 : 0)
+        setH264Backpressured(outstanding >= 2)
+    }
+
+    private func setH264Backpressured(_ value: Bool) {
+        guard h264Backpressured != value else { return }
+        h264Backpressured = value
+        onH264BackpressureChange?(value)
     }
 
     private func sendNextAudioChunk() {
@@ -529,8 +570,8 @@ private final class BrowserHTTPClient {
               ||matchMedia('(display-mode: fullscreen)').matches
               ||matchMedia('(display-mode: standalone)').matches;
             expand.hidden=installedViewer;
-            let decoder=null,decoderSignature='',decoderConfiguration=null,waitingForRecoveryKeyframe=false,latest=null,displayed=null,orientation=1,usingFallback=false;
-            let cachedWidth=0,cachedHeight=0,needsRedraw=false,streamGeneration=0,streamsActive=false,h264Abort=null;
+            let decoder=null,decoderSignature='',latest=null,displayed=null,orientation=1,usingFallback=false;
+            let cachedWidth=0,cachedHeight=0,needsRedraw=false,freshFrameReady=false,streamGeneration=0,streamsActive=false,h264Abort=null;
             const AudioContextClass=window.AudioContext||window.webkitAudioContext;
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
             let audioDestination=audioContext?audioContext.createMediaStreamDestination():null;
@@ -570,6 +611,7 @@ private final class BrowserHTTPClient {
               return !!nativeStream;
             }
             function enterImmersive(){
+              if(!freshFrameReady){showFullscreenHelp();return}
               ensureNativeMedia();
               const nativeRequest=nativeVideo.webkitEnterFullscreen||nativeVideo.webkitEnterFullScreen;
               if(nativeRequest&&nativeVideo.readyState>0){
@@ -610,7 +652,6 @@ private final class BrowserHTTPClient {
               needsRedraw=true;
             }
             function activateViewer(){
-              ensureNativeMedia();
               if(audioContext){
                 audioContext.resume().then(()=>{
                   audioUnlocked=true;audioEnabled=true;sound.style.display='none';runAudio(streamGeneration);
@@ -631,7 +672,7 @@ private final class BrowserHTTPClient {
                 displayed=latest;latest=null;
                 cachedWidth=displayed.displayWidth||displayed.codedWidth;
                 cachedHeight=displayed.displayHeight||displayed.codedHeight;
-                needsRedraw=true;status.style.display='none';
+                freshFrameReady=true;needsRedraw=true;status.style.display='none';
               }
               if(needsRedraw&&displayed&&cachedWidth&&cachedHeight){
                 const w=cachedWidth,h=cachedHeight;
@@ -676,22 +717,8 @@ private final class BrowserHTTPClient {
                 output:f=>{if(latest)latest.close();latest=f},
                 error:()=>startMJPEG(streamGeneration)
               });
-              decoderConfiguration={codec:codec,description:avcConfig(sps,pps,nal),codedWidth:width,codedHeight:height,optimizeForLatency:true,hardwareAcceleration:'prefer-hardware'};
-              decoder.configure(decoderConfiguration);
-              waitingForRecoveryKeyframe=false;
+              decoder.configure({codec:codec,description:avcConfig(sps,pps,nal),codedWidth:width,codedHeight:height,optimizeForLatency:true,hardwareAcceleration:'prefer-hardware'});
               decoderSignature=signature;
-            }
-            function resetDecoderAtKeyframe(){
-              if(!decoder||!decoderConfiguration)return false;
-              try{
-                decoder.reset();
-                decoder.configure(decoderConfiguration);
-                waitingForRecoveryKeyframe=false;
-                return true;
-              }catch(_){
-                startMJPEG(streamGeneration);
-                return false;
-              }
             }
             async function startH264(generation){
               const response=await fetch('/h264?k='+key+'&t='+Date.now(),{cache:'no-store',signal:h264Abort.signal});
@@ -707,16 +734,6 @@ private final class BrowserHTTPClient {
                   const type=view[0],timestamp=u64(view,1),payload=view.slice(13,13+length);offset+=13+length;
                   if(type===0)configure(payload);
                   else if(decoder&&decoder.state==='configured'){
-                    if(waitingForRecoveryKeyframe&&type!==1)continue;
-                    if(type===1&&(waitingForRecoveryKeyframe||decoder.decodeQueueSize>=6)){
-                      if(!resetDecoderAtKeyframe())continue;
-                    }else if(type!==1&&decoder.decodeQueueSize>=6){
-                      // Never discard a random H.264 reference frame and then
-                      // feed its dependent deltas to the decoder. Hold the last
-                      // displayed frame and resume cleanly at the next keyframe.
-                      waitingForRecoveryKeyframe=true;
-                      continue;
-                    }
                     decoder.decode(new EncodedVideoChunk({type:type===1?'key':'delta',timestamp:timestamp,data:payload}));
                   }
                 }
@@ -727,7 +744,7 @@ private final class BrowserHTTPClient {
               if(generation!==streamGeneration||usingFallback)return;usingFallback=true;
               if(h264Abort)h264Abort.abort();
               if(decoder&&decoder.state!=='closed')decoder.close();
-              decoder=null;decoderConfiguration=null;decoderSignature='';waitingForRecoveryKeyframe=false;
+              decoder=null;decoderSignature='';
               canvas.style.display='block';fallback.style.display='none';
               status.style.display=cachedWidth?'none':'grid';
               const connect=()=>{fallback.src='/stream?k='+key+'&t='+Date.now()};
@@ -830,11 +847,12 @@ private final class BrowserHTTPClient {
               fallback.removeAttribute('src');
               if(latest){latest.close();latest=null}
               if(decoder&&decoder.state!=='closed')decoder.close();
-              decoder=null;decoderConfiguration=null;decoderSignature='';waitingForRecoveryKeyframe=false;
+              decoder=null;decoderSignature='';freshFrameReady=false;
             };
             const startStreams=()=>{
               if(streamsActive)return;
               streamsActive=true;const generation=++streamGeneration;
+              freshFrameReady=false;
               h264Abort=new AbortController();audioAbort=new AbortController();
               usingFallback=false;canvas.style.display='block';fallback.style.display='none';
               if(!cachedWidth)status.style.display='grid';
@@ -857,7 +875,6 @@ private final class BrowserHTTPClient {
             });
             addEventListener('pagehide',releaseStreams);
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
-            ensureNativeMedia();
             startStreams();
           </script>
         </body>
