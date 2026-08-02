@@ -36,7 +36,7 @@ if (!source.includes('id="expand"') || !script.includes("expand.addEventListener
 if (!script.includes("toggleFit()") || !script.includes("pinchStartScale*touchDistance")) {
   throw new Error("The browser viewer does not provide fill and pinch zoom controls.");
 }
-if (!script.includes("if(document.hidden){if(!nativeFullscreen)releaseStreams()}")) {
+if (!script.includes("if(document.hidden){if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()}")) {
   throw new Error("Browser visibility handling can still terminate a native fullscreen stream.");
 }
 if (script.includes("location.reload()")) {
@@ -48,13 +48,23 @@ if (!script.includes("navigator.standalone===true")) {
 if (!source.includes('<video id="nativeVideo"') ||
     !script.includes("canvas.captureStream(60)") ||
     !script.includes("nativeVideo.webkitEnterFullscreen")) {
-  throw new Error("iPhone fullscreen is not backed by a live native video element.");
+  throw new Error("Legacy iPhone fullscreen is not backed by a live native video element.");
+}
+const stageFullscreenIndex = script.indexOf("stageFullscreenRequest.call(stage)");
+const legacyFullscreenIndex = script.indexOf("nativeRequest.call(nativeVideo)");
+if (stageFullscreenIndex < 0 ||
+    legacyFullscreenIndex < 0 ||
+    stageFullscreenIndex >= legacyFullscreenIndex) {
+  throw new Error("The live stage must be preferred over the freeze-prone legacy video fullscreen path.");
+}
+if (!script.includes("if(!stageFullscreenRequest){") ||
+    !script.includes("nativeTrack.requestFrame()")) {
+  throw new Error("Canvas capture is not isolated to the legacy fullscreen fallback.");
 }
 if (!script.includes("output:presentFrame") ||
     !script.includes("function presentFrame(frame)") ||
-    !script.includes("ctx.drawImage(displayed") ||
-    !script.includes("nativeTrack.requestFrame()")) {
-  throw new Error("Decoded frames do not directly update the native fullscreen stream.");
+    !script.includes("ctx.drawImage(displayed")) {
+  throw new Error("Decoded frames do not directly update the live fullscreen canvas.");
 }
 if (script.includes("frameCache")) {
   throw new Error("The viewer is still copying every decoded frame through an extra cache canvas.");
@@ -65,8 +75,9 @@ if (!script.includes("orientation===6)ctx.rotate(Math.PI/2)") ||
 }
 if (!script.includes("audioContext.createMediaStreamDestination()") ||
     !script.includes("source.connect(audioDestination)") ||
-    !script.includes("audioDestination.stream.getAudioTracks()")) {
-  throw new Error("Captured app audio is not attached to the native fullscreen video.");
+    !script.includes("audioDestination.stream.getAudioTracks()") ||
+    !script.includes("if(stageFullscreenRequest||!audioDestination)source.connect(audioContext.destination)")) {
+  throw new Error("Captured app audio is not routed through both fullscreen playback paths.");
 }
 if (!script.includes("Math.min(devicePixelRatio||1,1.25)")) {
   throw new Error("The browser viewer is rendering into an oversized Retina canvas.");

@@ -550,8 +550,9 @@ private final class BrowserHTTPClient {
             #expand{position:fixed;z-index:4;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));width:46px;height:46px;border:0;border-radius:23px;background:#111b;color:#fff;display:grid;place-items:center;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
             #expand[hidden],:fullscreen #expand,:-webkit-full-screen #expand{display:none}
             #expand svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-            :fullscreen #stage,:fullscreen canvas,:fullscreen img{width:100%;height:100%}
-            :-webkit-full-screen #stage,:-webkit-full-screen canvas,:-webkit-full-screen img{width:100%;height:100%}
+            #stage:fullscreen,#stage:-webkit-full-screen{inset:0;width:100vw;height:100vh;background:#000}
+            #stage:fullscreen canvas,#stage:fullscreen img,#stage:-webkit-full-screen canvas,#stage:-webkit-full-screen img{width:100%;height:100%}
+            #stage::backdrop{background:#000}
           </style>
         </head>
         <body>
@@ -575,9 +576,10 @@ private final class BrowserHTTPClient {
             const AudioContextClass=window.AudioContext||window.webkitAudioContext;
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
             let audioDestination=audioContext?audioContext.createMediaStreamDestination():null;
-            let canvasStream=null,nativeStream=null,nativeFullscreen=false;
+            let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false;
             let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0;
             let viewScale=1,pinchStartDistance=0,pinchStartScale=1,lastStageTap=0;
+            const stageFullscreenRequest=stage.requestFullscreen||stage.webkitRequestFullscreen;
 
             function resize(){
               const viewport=window.visualViewport;
@@ -612,6 +614,26 @@ private final class BrowserHTTPClient {
             }
             function enterImmersive(){
               if(!freshFrameReady){showFullscreenHelp();return}
+              // iOS 26 supports fullscreen DOM elements. Prefer the live
+              // stage so WebKit keeps executing the decoder and drawing the
+              // canvas. A canvas-capture MediaStream handed to native video
+              // fullscreen can freeze when the underlying page is hidden.
+              if(stageFullscreenRequest&&!document.fullscreenElement&&!document.webkitFullscreenElement){
+                try{
+                  stageFullscreenPending=true;
+                  const result=stageFullscreenRequest.call(stage);
+                  if(result&&typeof result.then==='function'){
+                    result.then(()=>{stageFullscreenPending=false;updateExpandButton();resize()})
+                      .catch(()=>{stageFullscreenPending=false;showFullscreenHelp()});
+                  }else{
+                    setTimeout(()=>{stageFullscreenPending=false},500);
+                  }
+                  return;
+                }catch(_){stageFullscreenPending=false}
+              }
+
+              // Legacy iPhone fallback for releases without element
+              // fullscreen support.
               ensureNativeMedia();
               const nativeRequest=nativeVideo.webkitEnterFullscreen||nativeVideo.webkitEnterFullScreen;
               if(nativeRequest&&nativeVideo.readyState>0){
@@ -624,14 +646,6 @@ private final class BrowserHTTPClient {
                   nativeRequest.call(nativeVideo);
                   return;
                 }catch(_){nativeFullscreen=false}
-              }
-              let target=stage,request=target.requestFullscreen||target.webkitRequestFullscreen;
-              if(request&&!document.fullscreenElement&&!document.webkitFullscreenElement){
-                try{
-                  const result=request.call(target);
-                  if(result&&typeof result.catch==='function')result.catch(showFullscreenHelp);
-                  return;
-                }catch(_){}
               }
               showFullscreenHelp();
               resize();
@@ -683,9 +697,14 @@ private final class BrowserHTTPClient {
               else if(orientation===7){ctx.rotate(-Math.PI/2);ctx.scale(1,-1)}
               else if(orientation===8)ctx.rotate(-Math.PI/2);
               ctx.drawImage(displayed,-w/2,-h/2,w,h);
-              ensureNativeMedia();
-              const nativeTrack=canvasStream&&canvasStream.getVideoTracks()[0];
-              if(nativeTrack&&typeof nativeTrack.requestFrame==='function')nativeTrack.requestFrame();
+              // Only legacy iPhones need the extra canvas-capture copy. On
+              // iOS 26 the stage itself goes fullscreen, avoiding that copy
+              // and keeping the decoder on the live page.
+              if(!stageFullscreenRequest){
+                ensureNativeMedia();
+                const nativeTrack=canvasStream&&canvasStream.getVideoTracks()[0];
+                if(nativeTrack&&typeof nativeTrack.requestFrame==='function')nativeTrack.requestFrame();
+              }
               needsRedraw=false;
             }
             function presentFrame(frame){
@@ -790,8 +809,12 @@ private final class BrowserHTTPClient {
               if(audioAt<now+.025||audioAt>now+.30)audioAt=now+.055;
               const source=audioContext.createBufferSource();
               source.buffer=output;
+              // Element fullscreen keeps the page's Web Audio graph live, so
+              // send app audio directly to the receiver speakers. The legacy
+              // native-video path still receives the same samples through its
+              // MediaStream destination.
+              if(stageFullscreenRequest||!audioDestination)source.connect(audioContext.destination);
               if(audioDestination)source.connect(audioDestination);
-              else source.connect(audioContext.destination);
               source.start(audioAt);
               audioFramesReceived++;
               audioAt+=frames/rate;
@@ -848,8 +871,8 @@ private final class BrowserHTTPClient {
             addEventListener('resize',resize,{passive:true});
             if(window.visualViewport)window.visualViewport.addEventListener('resize',resize,{passive:true});
             if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',()=>{needsRedraw=true;resize()});
-            document.addEventListener('fullscreenchange',()=>{needsRedraw=true;updateExpandButton();resize()});
-            document.addEventListener('webkitfullscreenchange',()=>{needsRedraw=true;updateExpandButton();resize()});
+            document.addEventListener('fullscreenchange',()=>{stageFullscreenPending=false;needsRedraw=true;updateExpandButton();resize()});
+            document.addEventListener('webkitfullscreenchange',()=>{stageFullscreenPending=false;needsRedraw=true;updateExpandButton();resize()});
             nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;expand.hidden=true;if(!streamsActive)startStreams()});
             nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;updateExpandButton();needsRedraw=true;resize();startStreams()});
             const releaseStreams=()=>{
@@ -883,10 +906,10 @@ private final class BrowserHTTPClient {
               }
             };
             document.addEventListener('visibilitychange',()=>{
-              if(document.hidden){if(!nativeFullscreen)releaseStreams()}
+              if(document.hidden){if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()}
               else startStreams();
             });
-            addEventListener('pagehide',()=>{if(!nativeFullscreen)releaseStreams()});
+            addEventListener('pagehide',()=>{if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()});
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             startStreams();
           </script>
