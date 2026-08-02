@@ -36,8 +36,13 @@ if (!source.includes('id="expand"') || !script.includes("expand.addEventListener
 if (!script.includes("toggleFit()") || !script.includes("pinchStartScale*touchDistance")) {
   throw new Error("The browser viewer does not provide fill and pinch zoom controls.");
 }
-if (!script.includes("if(document.hidden){if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()}")) {
-  throw new Error("Browser visibility handling can still terminate a native fullscreen stream.");
+if (!script.includes("if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()")) {
+  throw new Error("Browser visibility handling can still terminate a fullscreen stream.");
+}
+if (!script.includes("const restartStreams=()=>") ||
+    !script.includes("addEventListener('pageshow'") ||
+    !script.includes("addEventListener('online',restartStreams)")) {
+  throw new Error("A resumed or restored browser page does not force a fresh live connection.");
 }
 if (script.includes("location.reload()")) {
   throw new Error("The browser viewer reloads and loses its orientation state after foregrounding.");

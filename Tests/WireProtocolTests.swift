@@ -283,24 +283,22 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertFalse(AppConstants.allowsAutomaticPictureInPicture)
     }
 
-    func testReceiverBackgroundGraceIsBoundedToOneMinute() {
-        XCTAssertEqual(AppConstants.receiverBackgroundGraceSeconds, 60)
-    }
-
     func testNativeAndBrowserDestinationReadinessAreIndependent() {
         let native = SenderConfiguration(
             deliveryMode: .nativeReceiver,
             receiverServiceName: "ScreenShare-12345678",
             pairingCode: "2345-6789-ABCD-EFGH",
             quality: .balanced,
-            browserAccessKey: ""
+            browserAccessKey: "",
+            alwaysLandscape: true
         )
         let browser = SenderConfiguration(
             deliveryMode: .browser,
             receiverServiceName: "",
             pairingCode: "",
             quality: .balanced,
-            browserAccessKey: "2345-6789-ABCD-EFGH"
+            browserAccessKey: "2345-6789-ABCD-EFGH",
+            alwaysLandscape: true
         )
 
         XCTAssertTrue(native.isReady)
@@ -310,7 +308,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v9"
+            "dev.screenshare.sender.broadcast.v10"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
@@ -346,13 +344,25 @@ final class WireProtocolTests: XCTestCase {
             receiverServiceName: "",
             pairingCode: "",
             quality: .sharp,
-            browserAccessKey: "23456789ABCDEFGH"
+            browserAccessKey: "23456789ABCDEFGH",
+            alwaysLandscape: false
         )
 
         SenderConfigurationStore(defaults: writerDefaults).save(expected)
         let actual = SenderConfigurationStore(defaults: readerDefaults).load()
 
         XCTAssertEqual(actual, expected)
+    }
+
+    func testLandscapeModeDefaultsOnForExistingInstallations() {
+        let suiteName = "dev.screenshare.tests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(SenderConfigurationStore(defaults: defaults).load().alwaysLandscape)
     }
 
     func testBrowserWebAppManifestKeepsPrivateStartURLAndNeutralBranding() throws {
@@ -551,6 +561,45 @@ final class WireProtocolTests: XCTestCase {
                 pixelHeight: 1_440
             ),
             5
+        )
+    }
+
+    func testAlwaysLandscapeRotatesOnlyPortraitDisplayGeometry() {
+        XCTAssertEqual(
+            StreamOrientationPolicy.resolve(
+                orientation: 1,
+                pixelWidth: 664,
+                pixelHeight: 1_440,
+                alwaysLandscape: true
+            ),
+            6
+        )
+        XCTAssertEqual(
+            StreamOrientationPolicy.resolve(
+                orientation: 3,
+                pixelWidth: 664,
+                pixelHeight: 1_440,
+                alwaysLandscape: true
+            ),
+            8
+        )
+        XCTAssertEqual(
+            StreamOrientationPolicy.resolve(
+                orientation: 8,
+                pixelWidth: 664,
+                pixelHeight: 1_440,
+                alwaysLandscape: true
+            ),
+            8
+        )
+        XCTAssertEqual(
+            StreamOrientationPolicy.resolve(
+                orientation: 1,
+                pixelWidth: 664,
+                pixelHeight: 1_440,
+                alwaysLandscape: false
+            ),
+            1
         )
     }
 

@@ -12,6 +12,7 @@ final class SenderViewModel: ObservableObject {
     @Published var pairingCode: String
     @Published var quality: StreamQuality
     @Published var browserAccessKey: String
+    @Published var alwaysLandscape: Bool
     @Published private(set) var didSave: Bool
 
     let discovery = ReceiverDiscovery()
@@ -24,6 +25,7 @@ final class SenderViewModel: ObservableObject {
         pairingCode = PairingSecret.format(saved.pairingCode)
         quality = saved.quality
         browserAccessKey = saved.browserAccessKey
+        alwaysLandscape = saved.alwaysLandscape
         didSave = saved.isReady
 
         discovery.objectWillChange
@@ -37,7 +39,8 @@ final class SenderViewModel: ObservableObject {
             receiverServiceName: selectedServiceName,
             pairingCode: pairingCode,
             quality: quality,
-            browserAccessKey: browserAccessKey
+            browserAccessKey: browserAccessKey,
+            alwaysLandscape: alwaysLandscape
         )
     }
 
@@ -62,6 +65,7 @@ final class SenderViewModel: ObservableObject {
             && PairingSecret.normalize(pairingCode) == PairingSecret.normalize(saved.pairingCode)
             && quality == saved.quality
             && PairingSecret.normalize(browserAccessKey) == PairingSecret.normalize(saved.browserAccessKey)
+            && alwaysLandscape == saved.alwaysLandscape
     }
 
     func regenerateBrowserLink() {
@@ -102,6 +106,7 @@ struct SenderRootView: View {
                             browserCard
                         }
                         qualityCard
+                        orientationCard
                         startCard
                         privacyNote
                     }
@@ -130,6 +135,7 @@ struct SenderRootView: View {
         }
         .onChange(of: model.pairingCode) { _ in model.markDirty() }
         .onChange(of: model.quality) { _ in model.markDirty() }
+        .onChange(of: model.alwaysLandscape) { _ in model.markDirty() }
     }
 
     private var header: some View {
@@ -402,6 +408,25 @@ struct SenderRootView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 6)
+    }
+
+    private var orientationCard: some View {
+        card {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: $model.alwaysLandscape) {
+                    Label("Always landscape", systemImage: "rectangle.landscape.rotate")
+                        .font(.headline)
+                }
+                .tint(.cyan)
+                Text(
+                    model.alwaysLandscape
+                        ? "Portrait sender frames are rotated into a fixed landscape stream."
+                        : "The receiver follows portrait and landscape changes automatically."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var buildLabel: String {

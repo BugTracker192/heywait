@@ -18,7 +18,6 @@ final class ViewerSession: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var pausedForBackground = false
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    private var backgroundStopWorkItem: DispatchWorkItem?
 
     init() {
         identity = ReceiverIdentityStore.shared.load()
@@ -110,16 +109,15 @@ final class ViewerSession: ObservableObject {
         }
 
         pictureInPicture.suppressAutomaticPictureInPicture()
-        beginBackgroundGraceIfNeeded()
-        backgroundStopWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.pauseAfterBackgroundGrace()
+        if audio.isBackgroundPlaybackActive {
+            // Genuine stream audio is covered by the receiver's declared
+            // audio background mode. Do not impose an artificial timer on it.
+            cancelBackgroundGrace()
+        } else {
+            // A silent stream has no indefinite background entitlement. Ask
+            // UIKit only for its finite completion window and obey expiry.
+            beginBackgroundGraceIfNeeded()
         }
-        backgroundStopWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + AppConstants.receiverBackgroundGraceSeconds,
-            execute: workItem
-        )
     }
 
     func becameActive() {
@@ -139,8 +137,6 @@ final class ViewerSession: ObservableObject {
     }
 
     private func pauseAfterBackgroundGrace() {
-        backgroundStopWorkItem?.cancel()
-        backgroundStopWorkItem = nil
         if !pausedForBackground {
             pausedForBackground = true
             server.stop()
@@ -150,8 +146,6 @@ final class ViewerSession: ObservableObject {
     }
 
     private func cancelBackgroundGrace() {
-        backgroundStopWorkItem?.cancel()
-        backgroundStopWorkItem = nil
         endBackgroundTaskIfNeeded()
     }
 
@@ -194,7 +188,6 @@ final class ViewerSession: ObservableObject {
     }
 
     deinit {
-        backgroundStopWorkItem?.cancel()
         if backgroundTaskID != .invalid {
             UIApplication.shared.endBackgroundTask(backgroundTaskID)
         }

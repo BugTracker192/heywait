@@ -6,6 +6,7 @@ struct SenderConfiguration: Equatable {
     var pairingCode: String
     var quality: StreamQuality
     var browserAccessKey: String
+    var alwaysLandscape: Bool
 
     var isReady: Bool {
         switch deliveryMode {
@@ -26,6 +27,7 @@ final class SenderConfigurationStore {
         static let pairingCode = "pairingCode"
         static let quality = "streamQuality"
         static let browserAccessKey = "browserAccessKey"
+        static let alwaysLandscape = "alwaysLandscape"
     }
 
     private let defaults: UserDefaults
@@ -48,7 +50,10 @@ final class SenderConfigurationStore {
             receiverServiceName: defaults.string(forKey: Key.serviceName) ?? "",
             pairingCode: defaults.string(forKey: Key.pairingCode) ?? "",
             quality: StreamQuality(rawValue: defaults.string(forKey: Key.quality) ?? "") ?? .balanced,
-            browserAccessKey: PairingSecret.normalize(savedBrowserKey)
+            browserAccessKey: PairingSecret.normalize(savedBrowserKey),
+            alwaysLandscape: defaults.object(forKey: Key.alwaysLandscape) == nil
+                ? true
+                : defaults.bool(forKey: Key.alwaysLandscape)
         )
     }
 
@@ -58,6 +63,7 @@ final class SenderConfigurationStore {
         defaults.set(PairingSecret.normalize(configuration.pairingCode), forKey: Key.pairingCode)
         defaults.set(configuration.quality.rawValue, forKey: Key.quality)
         defaults.set(PairingSecret.normalize(configuration.browserAccessKey), forKey: Key.browserAccessKey)
+        defaults.set(configuration.alwaysLandscape, forKey: Key.alwaysLandscape)
         defaults.synchronize()
     }
 }

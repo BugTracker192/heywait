@@ -8,14 +8,22 @@ final class AudioPlaybackEngine {
     }
 
     private let queue = DispatchQueue(label: "dev.screenshare.receiver.audio", qos: .userInteractive)
+    private let stateLock = NSLock()
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private var activeFormat: FormatKey?
     private var scheduledBufferCount = 0
     private var generation: UInt64 = 0
+    private var backgroundPlaybackActive = false
 
     init() {
         engine.attach(player)
+    }
+
+    var isBackgroundPlaybackActive: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return backgroundPlaybackActive
     }
 
     func enqueue(_ frame: AudioPCMFrame) {
@@ -63,6 +71,7 @@ final class AudioPlaybackEngine {
             if !player.isPlaying {
                 player.play()
             }
+            setBackgroundPlaybackActive(true)
             return true
         }
 
@@ -78,6 +87,7 @@ final class AudioPlaybackEngine {
             try engine.start()
             player.play()
             activeFormat = key
+            setBackgroundPlaybackActive(true)
             return true
         } catch {
             resetInternal(deactivateSession: true)
@@ -155,6 +165,7 @@ final class AudioPlaybackEngine {
         engine.disconnectNodeOutput(player)
         engine.reset()
         activeFormat = nil
+        setBackgroundPlaybackActive(false)
 
         if deactivateSession {
             try? AVAudioSession.sharedInstance().setActive(
@@ -162,6 +173,12 @@ final class AudioPlaybackEngine {
                 options: .notifyOthersOnDeactivation
             )
         }
+    }
+
+    private func setBackgroundPlaybackActive(_ value: Bool) {
+        stateLock.lock()
+        backgroundPlaybackActive = value
+        stateLock.unlock()
     }
 
     deinit {

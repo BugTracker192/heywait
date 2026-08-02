@@ -578,7 +578,7 @@ private final class BrowserHTTPClient {
             let audioDestination=audioContext?audioContext.createMediaStreamDestination():null;
             let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false;
             let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0;
-            let viewScale=1,pinchStartDistance=0,pinchStartScale=1,lastStageTap=0;
+            let viewScale=1,pinchStartDistance=0,pinchStartScale=1,lastStageTap=0,backgrounded=false,lastRestartAt=0;
             const stageFullscreenRequest=stage.requestFullscreen||stage.webkitRequestFullscreen;
 
             function resize(){
@@ -905,11 +905,33 @@ private final class BrowserHTTPClient {
                 startMJPEG(generation);
               }
             };
+            const restartStreams=()=>{
+              if(document.hidden)return;
+              const now=performance.now();
+              if(now-lastRestartAt<250)return;
+              lastRestartAt=now;
+              if(streamsActive)releaseStreams();
+              startStreams();
+            };
             document.addEventListener('visibilitychange',()=>{
-              if(document.hidden){if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()}
-              else startStreams();
+              if(document.hidden){
+                backgrounded=true;
+                if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams();
+              }else if(backgrounded){
+                backgrounded=false;restartStreams();
+              }else{
+                startStreams();
+              }
             });
-            addEventListener('pagehide',()=>{if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()});
+            addEventListener('pagehide',()=>{
+              backgrounded=true;
+              if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams();
+            });
+            addEventListener('pageshow',event=>{
+              if(event.persisted||backgrounded||!streamsActive){backgrounded=false;restartStreams()}
+            });
+            addEventListener('focus',()=>{if(backgrounded){backgrounded=false;restartStreams()}});
+            addEventListener('online',restartStreams);
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             startStreams();
           </script>

@@ -18,11 +18,11 @@ The repository has no runtime binary dependencies. XcodeGen creates the project 
 - Low-latency game/app-audio playback in the native receiver and browser viewer, with bounded queues that discard stale audio rather than accumulating delay. Microphone audio is intentionally not captured.
 - Clean full-screen viewer. Controls appear only after a tap and automatically disappear.
 - Session persistence across transient Wi-Fi loss and app reopening.
-- A bounded 60-second receiver background grace period with no automatic floating PiP window.
+- Native receiver background continuation while genuine captured audio is playing, with a finite UIKit fallback for silent streams and no automatic floating PiP window.
 - Manual Picture in Picture for users who explicitly request visible background viewing.
 - Optional receiver-free browser viewing through a private same-LAN link and QR code.
 - Normal iOS screen recording of the unprotected viewer surface.
-- Remote-driven portrait/landscape window rotation and correctly oriented video-layer rendering.
+- A default-on **Always landscape** policy plus optional automatic portrait/landscape following.
 - GitHub Actions tests, TrollStore entitlement signing, IPA packaging, checksums, artifacts, and tagged releases.
 
 System-protected or FairPlay video may be blank in a capture. iOS itself decides that behavior.
@@ -48,7 +48,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v6` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. This matters because iOS may suspend the foreground Sender app as soon as the broadcast sheet or another app takes over, so the viewer never depends on a temporary app-owned web server or a perfectly synchronized mode switch. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG, where only the newest available frame is sent. App audio uses a separate bounded PCM stream and is attached to the live video used by iPhone Safari's native fullscreen player. The browser viewer caps its live canvas near the encoded resolution and recovers decoder overload only at an H.264 keyframe, avoiding excess Retina-scale copies and corrupt dependent-frame drops. The browser viewer exposes neutral Screen Share web-app metadata and an icon for **Add to Home Screen**.
+The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v10` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG. App audio uses a separate bounded PCM stream. Current iOS 26 Safari takes the live canvas stage fullscreen directly; older iPhones retain a native-video fallback. The page tears down suspended fetches and requests a fresh keyframe connection whenever it returns from the background or back-forward cache.
 
 Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
@@ -87,7 +87,7 @@ The sender includes a nested Broadcast Upload Extension and an App Group. Instal
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 
 - `dev.screenshare.sender`
-- `dev.screenshare.sender.broadcast.v9`
+- `dev.screenshare.sender.broadcast.v10`
 - `group.dev.screenshare.sender`
 
 Update them consistently in `project.yml`, `Config/*.entitlements`, and `Sources/Shared/AppConstants.swift`.
@@ -114,10 +114,10 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 
 1. Put the sender and viewing device on the same Wi-Fi network.
 2. In Sender, select **Browser**.
-3. Choose quality and tap **Save browser mode**.
+3. Choose quality, leave **Always landscape** enabled if portrait frames must be delivered horizontally, and tap **Save browser mode**.
 4. Start the Screen Share broadcast and wait for the iOS countdown to finish.
 5. Now scan the QR. The Camera app first opens a preview browser; tap its bottom-right compass icon to open the page in the real Safari app. The live extension must already be running.
-6. In Safari, wait until a live frame is visible, then use the viewer's top-left expand button. The viewer feeds the live canvas and captured app audio into a real video element because iPhone Safari only supports native fullscreen for video—not arbitrary page elements. Keep Rotation Lock off. ReplayKit's EXIF orientation is applied once to the raw frame; Safari remains responsible for rotating the receiver viewport, avoiding the previous 360-degree feedback loop. Double-tap to switch between fit/fill, or pinch to zoom up to 3×.
+6. In Safari, wait until a live frame is visible, then use the viewer's top-left expand button. Current iOS 26 takes the live stage fullscreen without copying it through a second video surface. Keep Rotation Lock off. Double-tap to switch between fit/fill, or pinch to zoom up to 3×.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.
 
@@ -125,9 +125,11 @@ Each Sender installation generates an independent 80-bit random access key. The 
 
 ## Background behavior
 
-On stock iOS 18–26, a normal app is suspended shortly after it enters the background. There is no public entitlement that lets a sideloaded viewer keep an arbitrary hidden TCP session alive forever.
+On stock iOS 18–26, a normal app or Safari page can be suspended after entering the background. There is no public entitlement that lets a sideloaded viewer or web page keep arbitrary hidden decoding alive forever.
 
-For a normal Home transition without PiP, Receiver requests a finite UIKit background task before resigning active, keeps the existing connection warm for at most 60 seconds, and presents no floating video window. Reopening during that grace period returns to the same live session. iOS may shorten the allowance because the duration is controlled by the system; if it expires, Receiver closes the socket and reconnects automatically when reopened.
+The native Receiver declares audio playback background mode. When the mirrored app is genuinely producing audio, the receiver keeps that audio and its live session active without the former artificial 60-second cutoff. A silent stream receives only UIKit's finite completion window; iOS controls its duration, and Receiver reconnects when reopened if the system expires it.
+
+Safari cannot continuously run the WebCodecs decoder after the user goes Home. Browser mode therefore disconnects cleanly while hidden and forces a fresh H.264/keyframe connection on `visibilitychange`, `pageshow`, focus, or network restoration. The last frame remains available while the foreground connection is restored.
 
 For explicitly visible background viewing:
 
@@ -186,7 +188,7 @@ This design was checked against current documentation on 2026-07-27:
 - The native receiver schedules PCM buffers through `AVAudioPlayerNode`; the browser uses Web Audio after the viewer's first tap because browsers gate audio playback behind a user gesture: [AVAudioPlayerNode `scheduleBuffer`](https://developer.apple.com/documentation/avfaudio/avaudioplayernode/schedulebuffer(_:at:options:completionhandler:)), [Web Audio API](https://www.w3.org/TR/webaudio-1.0/).
 - Apple's iOS ScreenCaptureKit sample requires iOS 27 and introduces the `screen-capture` background mode there: [Capturing screen content on iOS](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-on-ios).
 - Apple documents that an ordinary iOS app is normally suspended shortly after entering the background: [Extending background execution time](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time).
-- UIKit documents `beginBackgroundTask` as a finite request that can expire earlier and must always be ended; the receiver caps its grace period at 60 seconds and handles early expiration: [`beginBackgroundTask`](https://developer.apple.com/documentation/uikit/uiapplication/beginbackgroundtask(expirationhandler:)).
+- UIKit documents `beginBackgroundTask` as a finite request that can expire and must always be ended; the receiver uses it only as the fallback for streams without active audio: [`beginBackgroundTask`](https://developer.apple.com/documentation/uikit/uiapplication/beginbackgroundtask(expirationhandler:)).
 - Apple supports `AVSampleBufferDisplayLayer` as a Picture in Picture content source and requires media background configuration: [Adopting Picture in Picture in a custom player](https://developer.apple.com/documentation/avkit/adopting-picture-in-picture-in-a-custom-player).
 - Apple documents that `canStartPictureInPictureAutomaticallyFromInline` starts PiP when an inline player enters the background; Screen Share deliberately leaves it disabled and requires an explicit PiP tap: [`canStartPictureInPictureAutomaticallyFromInline`](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/canstartpictureinpictureautomaticallyfrominline).
 - Core Media defines `DisplayImmediately` as a per-sample attachment; the receiver also supplies valid timing and sync/dependency metadata for every H.264 frame: [`kCMSampleAttachmentKey_DisplayImmediately`](https://developer.apple.com/documentation/coremedia/kcmsampleattachmentkey_displayimmediately).
