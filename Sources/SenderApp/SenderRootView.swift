@@ -12,7 +12,8 @@ final class SenderViewModel: ObservableObject {
     @Published var pairingCode: String
     @Published var quality: StreamQuality
     @Published var browserAccessKey: String
-    @Published var alwaysLandscape: Bool
+    @Published var orientationMode: StreamOrientationMode
+    @Published var rotationDirection: StreamRotationDirection
     @Published private(set) var didSave: Bool
 
     let discovery = ReceiverDiscovery()
@@ -25,7 +26,8 @@ final class SenderViewModel: ObservableObject {
         pairingCode = PairingSecret.format(saved.pairingCode)
         quality = saved.quality
         browserAccessKey = saved.browserAccessKey
-        alwaysLandscape = saved.alwaysLandscape
+        orientationMode = saved.orientationMode
+        rotationDirection = saved.rotationDirection
         didSave = saved.isReady
 
         discovery.objectWillChange
@@ -40,7 +42,8 @@ final class SenderViewModel: ObservableObject {
             pairingCode: pairingCode,
             quality: quality,
             browserAccessKey: browserAccessKey,
-            alwaysLandscape: alwaysLandscape
+            orientationMode: orientationMode,
+            rotationDirection: rotationDirection
         )
     }
 
@@ -65,7 +68,8 @@ final class SenderViewModel: ObservableObject {
             && PairingSecret.normalize(pairingCode) == PairingSecret.normalize(saved.pairingCode)
             && quality == saved.quality
             && PairingSecret.normalize(browserAccessKey) == PairingSecret.normalize(saved.browserAccessKey)
-            && alwaysLandscape == saved.alwaysLandscape
+            && orientationMode == saved.orientationMode
+            && rotationDirection == saved.rotationDirection
     }
 
     func regenerateBrowserLink() {
@@ -135,7 +139,8 @@ struct SenderRootView: View {
         }
         .onChange(of: model.pairingCode) { _ in model.markDirty() }
         .onChange(of: model.quality) { _ in model.markDirty() }
-        .onChange(of: model.alwaysLandscape) { _ in model.markDirty() }
+        .onChange(of: model.orientationMode) { _ in model.markDirty() }
+        .onChange(of: model.rotationDirection) { _ in model.markDirty() }
     }
 
     private var header: some View {
@@ -412,20 +417,42 @@ struct SenderRootView: View {
 
     private var orientationCard: some View {
         card {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle(isOn: $model.alwaysLandscape) {
-                    Label("Always landscape", systemImage: "rectangle.landscape.rotate")
-                        .font(.headline)
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Stream orientation", systemImage: "rectangle.landscape.rotate")
+                    .font(.headline)
+                Picker("Stream orientation", selection: $model.orientationMode) {
+                    ForEach(StreamOrientationMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
-                .tint(.cyan)
+                .pickerStyle(.segmented)
+
+                if model.orientationMode != .automatic {
+                    Picker("Rotation direction", selection: $model.rotationDirection) {
+                        ForEach(StreamRotationDirection.allCases, id: \.self) { direction in
+                            Text(direction.title).tag(direction)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 Text(
-                    model.alwaysLandscape
-                        ? "Portrait sender frames are rotated into a fixed landscape stream."
-                        : "The receiver follows portrait and landscape changes automatically."
+                    orientationDescription
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var orientationDescription: String {
+        switch model.orientationMode {
+        case .automatic:
+            return "The receiver follows portrait and landscape changes automatically."
+        case .landscape:
+            return "Portrait frames are quarter-turned into landscape without stretching."
+        case .portrait:
+            return "Landscape frames are quarter-turned into portrait without stretching."
         }
     }
 

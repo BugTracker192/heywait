@@ -290,7 +290,8 @@ final class WireProtocolTests: XCTestCase {
             pairingCode: "2345-6789-ABCD-EFGH",
             quality: .balanced,
             browserAccessKey: "",
-            alwaysLandscape: true
+            orientationMode: .landscape,
+            rotationDirection: .left
         )
         let browser = SenderConfiguration(
             deliveryMode: .browser,
@@ -298,7 +299,8 @@ final class WireProtocolTests: XCTestCase {
             pairingCode: "",
             quality: .balanced,
             browserAccessKey: "2345-6789-ABCD-EFGH",
-            alwaysLandscape: true
+            orientationMode: .landscape,
+            rotationDirection: .left
         )
 
         XCTAssertTrue(native.isReady)
@@ -308,7 +310,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v10"
+            "dev.screenshare.sender.broadcast.v11"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
@@ -345,7 +347,8 @@ final class WireProtocolTests: XCTestCase {
             pairingCode: "",
             quality: .sharp,
             browserAccessKey: "23456789ABCDEFGH",
-            alwaysLandscape: false
+            orientationMode: .portrait,
+            rotationDirection: .right
         )
 
         SenderConfigurationStore(defaults: writerDefaults).save(expected)
@@ -362,7 +365,30 @@ final class WireProtocolTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(SenderConfigurationStore(defaults: defaults).load().alwaysLandscape)
+        let configuration = SenderConfigurationStore(defaults: defaults).load()
+        XCTAssertEqual(configuration.orientationMode, .landscape)
+        XCTAssertEqual(configuration.rotationDirection, .left)
+    }
+
+    func testVersion33LandscapeSettingMigratesToOrientationMode() {
+        let suiteName = "dev.screenshare.tests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: "alwaysLandscape")
+        XCTAssertEqual(
+            SenderConfigurationStore(defaults: defaults).load().orientationMode,
+            .automatic
+        )
+
+        defaults.set(true, forKey: "alwaysLandscape")
+        XCTAssertEqual(
+            SenderConfigurationStore(defaults: defaults).load().orientationMode,
+            .landscape
+        )
     }
 
     func testBrowserWebAppManifestKeepsPrivateStartURLAndNeutralBranding() throws {
@@ -564,31 +590,34 @@ final class WireProtocolTests: XCTestCase {
         )
     }
 
-    func testAlwaysLandscapeRotatesOnlyPortraitDisplayGeometry() {
+    func testForcedOrientationRotatesWithoutChangingMatchingGeometry() {
         XCTAssertEqual(
             StreamOrientationPolicy.resolve(
                 orientation: 1,
                 pixelWidth: 664,
                 pixelHeight: 1_440,
-                alwaysLandscape: true
+                mode: .landscape,
+                direction: .left
             ),
-            6
+            8
         )
         XCTAssertEqual(
             StreamOrientationPolicy.resolve(
                 orientation: 3,
                 pixelWidth: 664,
                 pixelHeight: 1_440,
-                alwaysLandscape: true
+                mode: .landscape,
+                direction: .left
             ),
-            8
+            6
         )
         XCTAssertEqual(
             StreamOrientationPolicy.resolve(
                 orientation: 8,
                 pixelWidth: 664,
                 pixelHeight: 1_440,
-                alwaysLandscape: true
+                mode: .landscape,
+                direction: .left
             ),
             8
         )
@@ -597,10 +626,75 @@ final class WireProtocolTests: XCTestCase {
                 orientation: 1,
                 pixelWidth: 664,
                 pixelHeight: 1_440,
-                alwaysLandscape: false
+                mode: .automatic,
+                direction: .left
             ),
             1
         )
+        XCTAssertEqual(
+            StreamOrientationPolicy.resolve(
+                orientation: 8,
+                pixelWidth: 664,
+                pixelHeight: 1_440,
+                mode: .portrait,
+                direction: .left
+            ),
+            3
+        )
+        XCTAssertEqual(
+            StreamOrientationPolicy.resolve(
+                orientation: 8,
+                pixelWidth: 664,
+                pixelHeight: 1_440,
+                mode: .portrait,
+                direction: .right
+            ),
+            1
+        )
+    }
+
+    func testForcedOrientationAlwaysProducesRequestedAspect() {
+        func displaySize(
+            orientation: UInt32,
+            pixelWidth: Int,
+            pixelHeight: Int
+        ) -> (width: Int, height: Int) {
+            (5...8).contains(orientation)
+                ? (pixelHeight, pixelWidth)
+                : (pixelWidth, pixelHeight)
+        }
+
+        for (pixelWidth, pixelHeight) in [(664, 1_440), (1_440, 664)] {
+            for orientation in UInt32(1)...UInt32(8) {
+                let landscape = StreamOrientationPolicy.resolve(
+                    orientation: orientation,
+                    pixelWidth: pixelWidth,
+                    pixelHeight: pixelHeight,
+                    mode: .landscape,
+                    direction: .left
+                )
+                let landscapeSize = displaySize(
+                    orientation: landscape,
+                    pixelWidth: pixelWidth,
+                    pixelHeight: pixelHeight
+                )
+                XCTAssertGreaterThan(landscapeSize.width, landscapeSize.height)
+
+                let portrait = StreamOrientationPolicy.resolve(
+                    orientation: orientation,
+                    pixelWidth: pixelWidth,
+                    pixelHeight: pixelHeight,
+                    mode: .portrait,
+                    direction: .right
+                )
+                let portraitSize = displaySize(
+                    orientation: portrait,
+                    pixelWidth: pixelWidth,
+                    pixelHeight: pixelHeight
+                )
+                XCTAssertLessThan(portraitSize.width, portraitSize.height)
+            }
+        }
     }
 
     private func floatSample(in data: Data, at index: Int) -> Float {

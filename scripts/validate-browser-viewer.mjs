@@ -36,6 +36,10 @@ if (!source.includes('id="expand"') || !script.includes("expand.addEventListener
 if (!script.includes("toggleFit()") || !script.includes("pinchStartScale*touchDistance")) {
   throw new Error("The browser viewer does not provide fill and pinch zoom controls.");
 }
+if (!script.includes("fillMode=true,refitOnNextFrame=true") ||
+    !script.includes("viewScale=fillMode?fitScaleForMode(true):1")) {
+  throw new Error("The browser viewer does not start edge-to-edge or refit after orientation changes.");
+}
 if (!script.includes("if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()")) {
   throw new Error("Browser visibility handling can still terminate a fullscreen stream.");
 }
@@ -43,6 +47,16 @@ if (!script.includes("const restartStreams=()=>") ||
     !script.includes("addEventListener('pageshow'") ||
     !script.includes("addEventListener('online',restartStreams)")) {
   throw new Error("A resumed or restored browser page does not force a fresh live connection.");
+}
+if (!script.includes("function rebuildLiveCanvas()") ||
+    !script.includes("canvas.replaceWith(replacement)") ||
+    !script.includes("fallback.replaceWith(replacementFallback)") ||
+    !script.includes("rebuildLiveCanvas();restartStreams()")) {
+  throw new Error("A resumed fullscreen viewer can reuse WebKit's stale compositor surface.");
+}
+if (!script.includes("sessionStorage.getItem(resumeMarker)") ||
+    !script.includes("(!cachedWidth&&!quietReconnect)?'grid':'none'")) {
+  throw new Error("Background recovery can expose the reconnect text over a blank frame.");
 }
 if (script.includes("location.reload()")) {
   throw new Error("The browser viewer reloads and loses its orientation state after foregrounding.");

@@ -22,7 +22,7 @@ The repository has no runtime binary dependencies. XcodeGen creates the project 
 - Manual Picture in Picture for users who explicitly request visible background viewing.
 - Optional receiver-free browser viewing through a private same-LAN link and QR code.
 - Normal iOS screen recording of the unprotected viewer surface.
-- A default-on **Always landscape** policy plus optional automatic portrait/landscape following.
+- Selectable **Automatic**, **Landscape**, and **Portrait** output policies with left/right quarter-turn control and no stretching.
 - GitHub Actions tests, TrollStore entitlement signing, IPA packaging, checksums, artifacts, and tagged releases.
 
 System-protected or FairPlay video may be blank in a capture. iOS itself decides that behavior.
@@ -48,7 +48,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v10` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG. App audio uses a separate bounded PCM stream. Current iOS 26 Safari takes the live canvas stage fullscreen directly; older iPhones retain a native-video fallback. The page tears down suspended fetches and requests a fresh keyframe connection whenever it returns from the background or back-forward cache.
+The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v11` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG. App audio uses a separate bounded PCM stream. Current iOS 26 Safari takes the live canvas stage fullscreen directly; older iPhones retain a native-video fallback. After foregrounding, the page rebuilds its live canvas/image layers before requesting a fresh keyframe connection, preventing Safari from reusing a frozen fullscreen compositor surface. A restored tab stays visually quiet until its live frame returns.
 
 Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
@@ -87,7 +87,7 @@ The sender includes a nested Broadcast Upload Extension and an App Group. Instal
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 
 - `dev.screenshare.sender`
-- `dev.screenshare.sender.broadcast.v10`
+- `dev.screenshare.sender.broadcast.v11`
 - `group.dev.screenshare.sender`
 
 Update them consistently in `project.yml`, `Config/*.entitlements`, and `Sources/Shared/AppConstants.swift`.
@@ -114,10 +114,10 @@ After that, the receiver switches to the live screen automatically. A tap reveal
 
 1. Put the sender and viewing device on the same Wi-Fi network.
 2. In Sender, select **Browser**.
-3. Choose quality, leave **Always landscape** enabled if portrait frames must be delivered horizontally, and tap **Save browser mode**.
+3. Choose quality and output orientation. Use **Landscape** to quarter-turn portrait sender frames, **Portrait** to quarter-turn landscape sender frames, or **Auto** to follow the sender. Pick **Turn left/right** if the receiving phone is held on the opposite side, then tap **Save browser mode**.
 4. Start the Screen Share broadcast and wait for the iOS countdown to finish.
 5. Now scan the QR. The Camera app first opens a preview browser; tap its bottom-right compass icon to open the page in the real Safari app. The live extension must already be running.
-6. In Safari, wait until a live frame is visible, then use the viewer's top-left expand button. Current iOS 26 takes the live stage fullscreen without copying it through a second video surface. Keep Rotation Lock off. Double-tap to switch between fit/fill, or pinch to zoom up to 3×.
+6. In Safari, wait until a live frame is visible, then use the viewer's top-left expand button. Current iOS 26 takes the live stage fullscreen without copying it through a second video surface. Keep Rotation Lock off. The viewer starts in edge-to-edge fill mode; double-tap to switch between fill/fit, or pinch to zoom up to 3×.
 
 Browser mode is access-controlled but uses plain HTTP on the trusted local network; it is not the end-to-end encrypted native protocol. Anyone on the reachable LAN who gets the full URL can view that broadcast. Generate a new private link after sharing it with an untrusted person. The browser may record normal history, network, and battery usage like any other visited page.
 
@@ -129,7 +129,7 @@ On stock iOS 18–26, a normal app or Safari page can be suspended after enterin
 
 The native Receiver declares audio playback background mode. When the mirrored app is genuinely producing audio, the receiver keeps that audio and its live session active without the former artificial 60-second cutoff. A silent stream receives only UIKit's finite completion window; iOS controls its duration, and Receiver reconnects when reopened if the system expires it.
 
-Safari cannot continuously run the WebCodecs decoder after the user goes Home. Browser mode therefore disconnects cleanly while hidden and forces a fresh H.264/keyframe connection on `visibilitychange`, `pageshow`, focus, or network restoration. The last frame remains available while the foreground connection is restored.
+Safari cannot continuously run the WebCodecs decoder after the user goes Home. Browser mode therefore disconnects cleanly while hidden and forces a fresh H.264/keyframe connection on `visibilitychange`, `pageshow`, focus, or network restoration. It rebuilds the fullscreen drawing surface on return and suppresses reconnect text after the first successful frame; depending on what state WebKit preserved, the viewer shows the previous frame or a plain black surface until live video resumes.
 
 For explicitly visible background viewing:
 

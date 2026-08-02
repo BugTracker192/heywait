@@ -12,12 +12,14 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var isPaused = false
     private var lastOrientation: UInt32 = 1
     private var lastOrientationDiagnostic = ""
-    private var alwaysLandscape = true
+    private var orientationMode: StreamOrientationMode = .landscape
+    private var rotationDirection: StreamRotationDirection = .left
     private var isFinishing = false
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         let configuration = SenderConfigurationStore.shared.load()
-        alwaysLandscape = configuration.alwaysLandscape
+        orientationMode = configuration.orientationMode
+        rotationDirection = configuration.rotationDirection
         guard configuration.deliveryMode == .browser || configuration.isReady else {
             finishBroadcastWithError(
                 NSError(
@@ -183,11 +185,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
             orientation: replayKitOrientation,
             pixelWidth: dimensions.width,
             pixelHeight: dimensions.height,
-            alwaysLandscape: alwaysLandscape
+            mode: orientationMode,
+            direction: rotationDirection
         )
         let rawDescription = rawOrientation.map { String($0) } ?? "none"
-        let modeDescription = alwaysLandscape ? "landscape" : "automatic"
-        let diagnostic = "ReplayKit \(dimensions.width)x\(dimensions.height) raw \(rawDescription) -> sent \(resolvedOrientation) [\(modeDescription)]"
+        let diagnostic = "ReplayKit \(dimensions.width)x\(dimensions.height) raw \(rawDescription) -> sent \(resolvedOrientation) [\(orientationMode.rawValue), \(rotationDirection.rawValue)]"
         if diagnostic != lastOrientationDiagnostic {
             lastOrientationDiagnostic = diagnostic
             UserDefaults(suiteName: AppConstants.appGroup)?.set(
