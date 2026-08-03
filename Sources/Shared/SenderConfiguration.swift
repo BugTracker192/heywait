@@ -26,6 +26,20 @@ enum StreamRotationDirection: String, CaseIterable {
     }
 }
 
+enum ViewerFramingMode: String, CaseIterable {
+    case fit
+    case fill
+    case stretch
+
+    var title: String {
+        switch self {
+        case .fit: return "Fit"
+        case .fill: return "Fill"
+        case .stretch: return "Stretch"
+        }
+    }
+}
+
 struct SenderConfiguration: Equatable {
     var deliveryMode: DeliveryMode
     var receiverServiceName: String
@@ -34,6 +48,7 @@ struct SenderConfiguration: Equatable {
     var browserAccessKey: String
     var orientationMode: StreamOrientationMode
     var rotationDirection: StreamRotationDirection
+    var framingMode: ViewerFramingMode
 
     var isReady: Bool {
         switch deliveryMode {
@@ -57,6 +72,7 @@ final class SenderConfigurationStore {
         static let alwaysLandscape = "alwaysLandscape"
         static let orientationMode = "streamOrientationMode"
         static let rotationDirection = "streamRotationDirection"
+        static let framingMode = "viewerFramingMode"
     }
 
     private let defaults: UserDefaults
@@ -83,6 +99,9 @@ final class SenderConfigurationStore {
         let rotationDirection = StreamRotationDirection(
             rawValue: defaults.string(forKey: Key.rotationDirection) ?? ""
         ) ?? .left
+        let framingMode = ViewerFramingMode(
+            rawValue: defaults.string(forKey: Key.framingMode) ?? ""
+        ) ?? .fill
 
         return SenderConfiguration(
             deliveryMode: DeliveryMode(rawValue: defaults.string(forKey: Key.deliveryMode) ?? "") ?? .nativeReceiver,
@@ -91,7 +110,8 @@ final class SenderConfigurationStore {
             quality: StreamQuality(rawValue: defaults.string(forKey: Key.quality) ?? "") ?? .balanced,
             browserAccessKey: PairingSecret.normalize(savedBrowserKey),
             orientationMode: orientationMode,
-            rotationDirection: rotationDirection
+            rotationDirection: rotationDirection,
+            framingMode: framingMode
         )
     }
 
@@ -103,6 +123,7 @@ final class SenderConfigurationStore {
         defaults.set(PairingSecret.normalize(configuration.browserAccessKey), forKey: Key.browserAccessKey)
         defaults.set(configuration.orientationMode.rawValue, forKey: Key.orientationMode)
         defaults.set(configuration.rotationDirection.rawValue, forKey: Key.rotationDirection)
+        defaults.set(configuration.framingMode.rawValue, forKey: Key.framingMode)
         // Preserve compatibility if an older containing app is briefly opened.
         defaults.set(configuration.orientationMode == .landscape, forKey: Key.alwaysLandscape)
         defaults.synchronize()

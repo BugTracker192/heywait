@@ -291,7 +291,8 @@ final class WireProtocolTests: XCTestCase {
             quality: .balanced,
             browserAccessKey: "",
             orientationMode: .landscape,
-            rotationDirection: .left
+            rotationDirection: .left,
+            framingMode: .fill
         )
         let browser = SenderConfiguration(
             deliveryMode: .browser,
@@ -300,7 +301,8 @@ final class WireProtocolTests: XCTestCase {
             quality: .balanced,
             browserAccessKey: "2345-6789-ABCD-EFGH",
             orientationMode: .landscape,
-            rotationDirection: .left
+            rotationDirection: .left,
+            framingMode: .stretch
         )
 
         XCTAssertTrue(native.isReady)
@@ -310,7 +312,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v11"
+            "dev.screenshare.sender.broadcast.v12"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
@@ -348,7 +350,8 @@ final class WireProtocolTests: XCTestCase {
             quality: .sharp,
             browserAccessKey: "23456789ABCDEFGH",
             orientationMode: .portrait,
-            rotationDirection: .right
+            rotationDirection: .right,
+            framingMode: .stretch
         )
 
         SenderConfigurationStore(defaults: writerDefaults).save(expected)
@@ -368,6 +371,7 @@ final class WireProtocolTests: XCTestCase {
         let configuration = SenderConfigurationStore(defaults: defaults).load()
         XCTAssertEqual(configuration.orientationMode, .landscape)
         XCTAssertEqual(configuration.rotationDirection, .left)
+        XCTAssertEqual(configuration.framingMode, .fill)
     }
 
     func testVersion33LandscapeSettingMigratesToOrientationMode() {

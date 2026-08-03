@@ -14,6 +14,7 @@ final class SenderViewModel: ObservableObject {
     @Published var browserAccessKey: String
     @Published var orientationMode: StreamOrientationMode
     @Published var rotationDirection: StreamRotationDirection
+    @Published var framingMode: ViewerFramingMode
     @Published private(set) var didSave: Bool
 
     let discovery = ReceiverDiscovery()
@@ -28,6 +29,7 @@ final class SenderViewModel: ObservableObject {
         browserAccessKey = saved.browserAccessKey
         orientationMode = saved.orientationMode
         rotationDirection = saved.rotationDirection
+        framingMode = saved.framingMode
         didSave = saved.isReady
 
         discovery.objectWillChange
@@ -43,7 +45,8 @@ final class SenderViewModel: ObservableObject {
             quality: quality,
             browserAccessKey: browserAccessKey,
             orientationMode: orientationMode,
-            rotationDirection: rotationDirection
+            rotationDirection: rotationDirection,
+            framingMode: framingMode
         )
     }
 
@@ -70,11 +73,20 @@ final class SenderViewModel: ObservableObject {
             && PairingSecret.normalize(browserAccessKey) == PairingSecret.normalize(saved.browserAccessKey)
             && orientationMode == saved.orientationMode
             && rotationDirection == saved.rotationDirection
+            && framingMode == saved.framingMode
     }
 
     func regenerateBrowserLink() {
         browserAccessKey = PairingSecret.normalize(PairingSecret.generate())
-        didSave = false
+        saveBrowserConfigurationIfPossible()
+    }
+
+    func saveBrowserConfigurationIfPossible() {
+        guard deliveryMode == .browser, isReady else {
+            markDirty()
+            return
+        }
+        save()
     }
 
     func save() {
@@ -111,6 +123,9 @@ struct SenderRootView: View {
                         }
                         qualityCard
                         orientationCard
+                        if model.deliveryMode == .browser {
+                            framingCard
+                        }
                         startCard
                         privacyNote
                     }
@@ -130,17 +145,19 @@ struct SenderRootView: View {
             model.discovery.stop()
         }
         .onChange(of: model.deliveryMode) { mode in
-            model.markDirty()
             if mode == .nativeReceiver {
+                model.markDirty()
                 model.discovery.start()
             } else {
                 model.discovery.stop()
+                model.saveBrowserConfigurationIfPossible()
             }
         }
         .onChange(of: model.pairingCode) { _ in model.markDirty() }
-        .onChange(of: model.quality) { _ in model.markDirty() }
-        .onChange(of: model.orientationMode) { _ in model.markDirty() }
-        .onChange(of: model.rotationDirection) { _ in model.markDirty() }
+        .onChange(of: model.quality) { _ in model.saveBrowserConfigurationIfPossible() }
+        .onChange(of: model.orientationMode) { _ in model.saveBrowserConfigurationIfPossible() }
+        .onChange(of: model.rotationDirection) { _ in model.saveBrowserConfigurationIfPossible() }
+        .onChange(of: model.framingMode) { _ in model.saveBrowserConfigurationIfPossible() }
     }
 
     private var header: some View {
@@ -453,6 +470,35 @@ struct SenderRootView: View {
             return "Portrait frames are quarter-turned into landscape without stretching."
         case .portrait:
             return "Landscape frames are quarter-turned into portrait without stretching."
+        }
+    }
+
+    private var framingCard: some View {
+        card {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Viewer framing", systemImage: "arrow.up.left.and.arrow.down.right")
+                    .font(.headline)
+                Picker("Viewer framing", selection: $model.framingMode) {
+                    ForEach(ViewerFramingMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(framingDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var framingDescription: String {
+        switch model.framingMode {
+        case .fit:
+            return "Shows the complete stream without cropping; mismatched screens may have black bars."
+        case .fill:
+            return "Fills the viewer without distortion; mismatched screens may crop the edges."
+        case .stretch:
+            return "Fills the viewer without cropping; mismatched screens are stretched to fit."
         }
     }
 

@@ -10,7 +10,9 @@ if (!match) {
   throw new Error("Browser viewer script was not found.");
 }
 
-const script = match[1].replaceAll("\\(accessKey)", "TESTACCESSKEY");
+const script = match[1]
+  .replaceAll("\\(accessKey)", "TESTACCESSKEY")
+  .replaceAll("\\(framingMode)", "fill");
 
 // Parse the embedded page as JavaScript so CI catches accidental syntax errors.
 new Function(script);
@@ -27,18 +29,20 @@ if (script.includes("screen.orientation.lock(")) {
 if (!source.includes("#sound{display:none}")) {
   throw new Error("The browser viewer exposes the fullscreen/audio gesture overlay.");
 }
-if (!script.includes("stage.addEventListener('click',()=>")) {
+if (!script.includes("stage.addEventListener('click',activateViewer)")) {
   throw new Error("The browser viewer does not provide an unobtrusive activation gesture.");
 }
 if (!source.includes('id="expand"') || !script.includes("expand.addEventListener('click'")) {
   throw new Error("The browser viewer does not provide an explicit fullscreen button.");
 }
-if (!script.includes("toggleFit()") || !script.includes("pinchStartScale*touchDistance")) {
-  throw new Error("The browser viewer does not provide fill and pinch zoom controls.");
+if (!script.includes("pinchStartScale*touchDistance")) {
+  throw new Error("The browser viewer does not provide pinch zoom controls.");
 }
-if (!script.includes("fillMode=true,refitOnNextFrame=true") ||
-    !script.includes("viewScale=fillMode?fitScaleForMode(true):1")) {
-  throw new Error("The browser viewer does not start edge-to-edge or refit after orientation changes.");
+if (!script.includes("const framingMode='fill'") ||
+    !script.includes("framingMode==='stretch'?canvas.width/dw:uniform") ||
+    !script.includes("framingMode==='fill'?fill:fit") ||
+    script.includes("fitMarker")) {
+  throw new Error("The browser viewer does not apply the persisted Fit/Fill/Stretch policy.");
 }
 if (!script.includes("if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()")) {
   throw new Error("Browser visibility handling can still terminate a fullscreen stream.");

@@ -523,6 +523,7 @@ private final class BrowserHTTPClient {
     }
 
     private func sendHTML(accessKey: String) {
+        let framingMode = SenderConfigurationStore.shared.load().framingMode.rawValue
         let page = """
         <!doctype html>
         <html>
@@ -564,7 +565,8 @@ private final class BrowserHTTPClient {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
           </button>
           <script>
-            const key='\(accessKey)',resumeMarker='screen-share-has-frame-'+key,fitMarker='screen-share-fill-'+key,stage=document.getElementById('stage');
+            const key='\(accessKey)',resumeMarker='screen-share-has-frame-'+key,stage=document.getElementById('stage');
+            const framingMode='\(framingMode)';
             let canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});
             let fallback=document.getElementById('fallback');
             const nativeVideo=document.getElementById('nativeVideo'),status=document.getElementById('status'),sound=document.getElementById('sound'),expand=document.getElementById('expand');
@@ -579,13 +581,12 @@ private final class BrowserHTTPClient {
             let audioDestination=audioContext?audioContext.createMediaStreamDestination():null;
             let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false;
             let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0;
-            let viewScale=1,pinchStartDistance=0,pinchStartScale=1,lastStageTap=0,backgrounded=false,lastRestartAt=0,lastCanvasRebuildAt=0,quietReconnect=false,fillMode=true,refitOnNextFrame=true;
+            let viewScale=1,pinchStartDistance=0,pinchStartScale=1,backgrounded=false,lastRestartAt=0,lastCanvasRebuildAt=0,quietReconnect=false,refitOnNextFrame=true;
             const stageFullscreenRequest=stage.requestFullscreen||stage.webkitRequestFullscreen;
             try{
               quietReconnect=sessionStorage.getItem(resumeMarker)==='1';
-              const savedFill=sessionStorage.getItem(fitMarker);
-              if(savedFill!==null)fillMode=savedFill==='1';
             }catch(_){}
+            fallback.style.objectFit=framingMode==='stretch'?'fill':(framingMode==='fill'?'cover':'contain');
             if(quietReconnect)status.style.display='none';
 
             function resize(){
@@ -619,6 +620,7 @@ private final class BrowserHTTPClient {
               const replacementFallback=document.createElement('img');
               replacementFallback.id='fallback';
               replacementFallback.alt='Live Screen Share';
+              replacementFallback.style.objectFit=framingMode==='stretch'?'fill':(framingMode==='fill'?'cover':'contain');
               fallback.onload=null;fallback.onerror=null;fallback.removeAttribute('src');
               canvas.replaceWith(replacement);
               fallback.replaceWith(replacementFallback);
@@ -684,23 +686,9 @@ private final class BrowserHTTPClient {
             function updateExpandButton(){
               expand.hidden=installedViewer||fullscreenActive();
             }
-            function fitScaleForMode(fill){
-              if(!cachedWidth||!cachedHeight)return 1;
-              const quarter=[5,6,7,8].includes(orientation);
-              const width=quarter?cachedHeight:cachedWidth,height=quarter?cachedWidth:cachedHeight;
-              const fit=Math.min(canvas.width/width,canvas.height/height);
-              const cover=Math.max(canvas.width/width,canvas.height/height);
-              return fill?Math.min(3,Math.max(1,cover/fit)):1;
-            }
-            function toggleFit(){
-              fillMode=!fillMode;
-              viewScale=fillMode?fitScaleForMode(true):1;
-              try{sessionStorage.setItem(fitMarker,fillMode?'1':'0')}catch(_){}
-              needsRedraw=true;
-            }
             function refitForViewport(){
               resize();
-              viewScale=fillMode?fitScaleForMode(true):1;
+              viewScale=1;
               needsRedraw=true;
             }
             function activateViewer(){
@@ -721,10 +709,13 @@ private final class BrowserHTTPClient {
               if(!displayed||!cachedWidth||!cachedHeight)return;
               const w=cachedWidth,h=cachedHeight;
               const quarter=[5,6,7,8].includes(orientation),dw=quarter?h:w,dh=quarter?w:h;
-              const scale=Math.min(canvas.width/dw,canvas.height/dh)*viewScale;
+              const fit=Math.min(canvas.width/dw,canvas.height/dh),fill=Math.max(canvas.width/dw,canvas.height/dh);
+              const uniform=(framingMode==='fill'?fill:fit)*viewScale;
+              const scaleX=framingMode==='stretch'?canvas.width/dw:uniform;
+              const scaleY=framingMode==='stretch'?canvas.height/dh:uniform;
               try{
                 ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
-                ctx.translate(canvas.width/2,canvas.height/2);ctx.scale(scale,scale);
+                ctx.translate(canvas.width/2,canvas.height/2);ctx.scale(scaleX,scaleY);
                 if(orientation===2)ctx.scale(-1,1);
                 else if(orientation===3)ctx.rotate(Math.PI);
                 else if(orientation===4)ctx.scale(1,-1);
@@ -758,7 +749,7 @@ private final class BrowserHTTPClient {
               try{sessionStorage.setItem(resumeMarker,'1')}catch(_){}
               resize();
               if(refitOnNextFrame){
-                viewScale=fillMode?fitScaleForMode(true):1;
+                viewScale=1;
                 refitOnNextFrame=false;
               }
               drawDisplayed();
@@ -889,12 +880,7 @@ private final class BrowserHTTPClient {
               if(audioLoopGeneration===generation)audioLoopGeneration=0;
               if(audioEnabled&&generation===streamGeneration)setTimeout(()=>runAudio(generation),700);
             }
-            stage.addEventListener('click',()=>{
-              const now=performance.now();
-              if(now-lastStageTap<320)toggleFit();
-              lastStageTap=now;
-              activateViewer();
-            });
+            stage.addEventListener('click',activateViewer);
             expand.addEventListener('click',event=>{
               event.preventDefault();event.stopPropagation();
               activateViewer();
