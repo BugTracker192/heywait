@@ -89,6 +89,17 @@ if (!source.includes('<video id="nativeVideo"') ||
     !script.includes("nativeVideo.webkitEnterFullscreen")) {
   throw new Error("Legacy iPhone fullscreen is not backed by a live native video element.");
 }
+if (!script.includes("function resumeNativePlayback(resetAttempts=false,allowHidden=false)") ||
+    !script.includes("const delays=[0,120,350,800,1600,3000]") ||
+    !script.includes("(!allowHidden&&document.hidden)") ||
+    !script.includes("if(nativeVideo.srcObject!==nativeStream)nativeVideo.srcObject=nativeStream") ||
+    !script.includes("try{result=nativeVideo.play()}catch(_)") ||
+    !script.includes("nativeVideo.addEventListener('pause'") ||
+    !script.includes("restartStreams();resumeNativePlayback(true)") ||
+    !script.includes("addEventListener('pageshow'") ||
+    !script.includes("resumeNativePlayback(true,true);\n            });")) {
+  throw new Error("Native Safari fullscreen does not resume autoplay after foregrounding.");
+}
 const stageFullscreenIndex = script.indexOf("stageFullscreenRequest.call(stage)");
 const legacyFullscreenIndex = script.indexOf("nativeRequest.call(nativeVideo)");
 if (stageFullscreenIndex < 0 ||

@@ -588,7 +588,7 @@ private final class BrowserHTTPClient {
             const AudioContextClass=window.AudioContext||window.webkitAudioContext;
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
             let audioDestination=audioContext?audioContext.createMediaStreamDestination():null;
-            let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false,fullscreenLocked=false,lockHideTimer=null,cornerHoldTimer=null;
+            let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false,fullscreenLocked=false,lockHideTimer=null,cornerHoldTimer=null,nativeResumeTimer=null,nativeResumeAttempt=0;
             let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0;
             let viewScale=1,pinchStartDistance=0,pinchStartScale=1,backgrounded=false,lastRestartAt=0,lastCanvasRebuildAt=0,quietReconnect=false,refitOnNextFrame=true;
             const stageFullscreenRequest=stage.requestFullscreen||stage.webkitRequestFullscreen;
@@ -666,6 +666,33 @@ private final class BrowserHTTPClient {
                 nativeVideo.play().catch(()=>{});
               }
               return !!nativeStream;
+            }
+            function resumeNativePlayback(resetAttempts=false,allowHidden=false){
+              if(resetAttempts)nativeResumeAttempt=0;
+              if(nativeResumeTimer){clearTimeout(nativeResumeTimer);nativeResumeTimer=null}
+              if(!nativeFullscreen||(!allowHidden&&document.hidden)||!nativeStream)return;
+              const delays=[0,120,350,800,1600,3000];
+              const attempt=Math.min(nativeResumeAttempt,delays.length-1);
+              nativeResumeTimer=setTimeout(()=>{
+                nativeResumeTimer=null;
+                if(!nativeFullscreen||(!allowHidden&&document.hidden)||!nativeStream)return;
+                if(nativeVideo.srcObject!==nativeStream)nativeVideo.srcObject=nativeStream;
+                if(audioContext&&audioUnlocked)audioContext.resume().catch(()=>{});
+                nativeVideo.muted=!audioUnlocked;
+                nativeVideo.volume=1;
+                let result=null;
+                try{result=nativeVideo.play()}catch(_){
+                  nativeResumeAttempt++;
+                  if(nativeResumeAttempt<delays.length)resumeNativePlayback(false,allowHidden);
+                  return;
+                }
+                nativeResumeAttempt++;
+                if(result&&typeof result.then==='function'){
+                  result.then(()=>{nativeResumeAttempt=0}).catch(()=>{
+                    if(nativeResumeAttempt<delays.length)resumeNativePlayback(false,allowHidden);
+                  });
+                }
+              },delays[attempt]);
             }
             function enterImmersive(){
               if(!freshFrameReady){showFullscreenHelp();return}
@@ -983,8 +1010,12 @@ private final class BrowserHTTPClient {
             };
             document.addEventListener('fullscreenchange',fullscreenChanged);
             document.addEventListener('webkitfullscreenchange',fullscreenChanged);
-            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;fullscreenLocked=true;showLockIndicator();expand.hidden=true;if(!streamsActive)startStreams()});
-            nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;fullscreenLocked=false;hideLockIndicator();updateExpandButton();needsRedraw=true;resize();startStreams()});
+            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;fullscreenLocked=true;showLockIndicator();expand.hidden=true;if(!streamsActive)startStreams();resumeNativePlayback(true,true)});
+            nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;fullscreenLocked=false;if(nativeResumeTimer){clearTimeout(nativeResumeTimer);nativeResumeTimer=null}hideLockIndicator();updateExpandButton();needsRedraw=true;resize();startStreams()});
+            nativeVideo.addEventListener('playing',()=>{nativeResumeAttempt=0});
+            nativeVideo.addEventListener('pause',()=>{
+              if(nativeFullscreen&&!document.hidden)resumeNativePlayback(false);
+            });
             const releaseStreams=()=>{
               streamsActive=false;streamGeneration++;
               audioEnabled=false;
@@ -1035,9 +1066,9 @@ private final class BrowserHTTPClient {
                 // while the player is still visibly active.
                 if(!nativeFullscreen)releaseStreams();
               }else if(backgrounded){
-                backgrounded=false;rebuildLiveCanvas();restartStreams();
+                backgrounded=false;rebuildLiveCanvas();restartStreams();resumeNativePlayback(true);
               }else{
-                startStreams();
+                startStreams();resumeNativePlayback(false);
               }
             });
             addEventListener('pagehide',()=>{
@@ -1047,8 +1078,9 @@ private final class BrowserHTTPClient {
             });
             addEventListener('pageshow',event=>{
               if(event.persisted||backgrounded||!streamsActive){backgrounded=false;quietReconnect=true;rebuildLiveCanvas();restartStreams()}
+              resumeNativePlayback(true,true);
             });
-            addEventListener('focus',()=>{if(backgrounded){backgrounded=false;quietReconnect=true;rebuildLiveCanvas();restartStreams()}});
+            addEventListener('focus',()=>{if(backgrounded){backgrounded=false;quietReconnect=true;rebuildLiveCanvas();restartStreams()}resumeNativePlayback(true,true)});
             addEventListener('online',restartStreams);
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             startStreams();
