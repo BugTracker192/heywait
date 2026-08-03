@@ -329,22 +329,23 @@ struct SenderRootView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Text(
-                    model.deliveryMode == .browser
-                        ? (
-                            model.quality == .dataSaver
-                                ? "60 FPS low-resolution target for the smoothest delivery."
-                                : "60 FPS hardware H.264 target with automatic JPEG fallback."
-                        )
-                        : (
-                            model.quality == .dataSaver
-                                ? "60 FPS low-resolution target for the smoothest delivery."
-                                : "60 FPS target on supported sender hardware."
-                        )
-                )
+                Text(qualityDescription)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var qualityDescription: String {
+        switch model.quality {
+        case .ultra:
+            return "1440p, 60 FPS hardware H.264 target. Requires strong Wi-Fi and uses more heat and battery."
+        case .sharp:
+            return "1080p, 60 FPS hardware H.264 target with automatic compatibility fallback."
+        case .balanced:
+            return "960p, 60 FPS hardware H.264 target balanced for quality and stability."
+        case .dataSaver:
+            return "540p, 60 FPS target for the smoothest delivery on weaker networks."
         }
     }
 

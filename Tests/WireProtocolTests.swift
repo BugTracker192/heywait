@@ -247,6 +247,10 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(sharp.width, 498)
         XCTAssertEqual(sharp.height, 1080)
 
+        let ultra = StreamQuality.ultra.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
+        XCTAssertEqual(ultra.width, 664)
+        XCTAssertEqual(ultra.height, 1440)
+
         let saver = StreamQuality.dataSaver.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
         XCTAssertEqual(saver.width, 248)
         XCTAssertEqual(saver.height, 540)
@@ -261,10 +265,17 @@ final class WireProtocolTests: XCTestCase {
     func testStreamQualityFrameRateTargets() {
         XCTAssertEqual(StreamQuality.balanced.framesPerSecond, 60)
         XCTAssertEqual(StreamQuality.sharp.framesPerSecond, 60)
+        XCTAssertEqual(StreamQuality.ultra.framesPerSecond, 60)
         XCTAssertEqual(StreamQuality.dataSaver.framesPerSecond, 60)
         XCTAssertEqual(StreamQuality.balanced.browserFramesPerSecond, 24)
         XCTAssertEqual(StreamQuality.sharp.browserFramesPerSecond, 30)
+        XCTAssertEqual(StreamQuality.ultra.browserFramesPerSecond, 30)
         XCTAssertEqual(StreamQuality.dataSaver.browserFramesPerSecond, 30)
+        XCTAssertGreaterThan(
+            StreamQuality.ultra.bitRate(width: 1_440, height: 1_080),
+            StreamQuality.sharp.bitRate(width: 1_080, height: 810)
+        )
+        XCTAssertEqual(StreamQuality.ultra.bitRate(width: 1_440, height: 1_080), 12_000_000)
     }
 
     func testTransportWindowCoversQuarterSecondAtTargetFrameRate() {
@@ -312,7 +323,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v13"
+            "dev.screenshare.sender.broadcast.v14"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",

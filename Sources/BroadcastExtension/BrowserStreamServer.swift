@@ -540,7 +540,7 @@ private final class BrowserHTTPClient {
           <link rel="manifest" href="/manifest.webmanifest?k=\(accessKey)">
           <title>Screen Share</title>
           <style>
-            *{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+            *{box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
             html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;background:#000;overflow:hidden;overscroll-behavior:none}
             #stage{position:fixed;inset:0;width:100%;height:100%;background:#000;touch-action:none}
             canvas,img{position:absolute;inset:0;width:100%;height:100%;background:#000}
@@ -551,13 +551,22 @@ private final class BrowserHTTPClient {
             #expand{position:fixed;z-index:4;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));width:46px;height:46px;border:0;border-radius:23px;background:#111b;color:#fff;display:grid;place-items:center;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
             #expand[hidden],:fullscreen #expand,:-webkit-full-screen #expand{display:none}
             #expand svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+            #lockIndicator{position:fixed;z-index:5;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));width:42px;height:42px;border-radius:21px;background:#111b;color:#fff;display:grid;place-items:center;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .22s ease,visibility .22s ease;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+            #lockIndicator.visible{opacity:1;visibility:visible}
+            #lockIndicator[hidden]{display:none}
+            #lockIndicator svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
             #stage:fullscreen,#stage:-webkit-full-screen{inset:0;width:100vw;height:100vh;background:#000}
             #stage:fullscreen canvas,#stage:fullscreen img,#stage:-webkit-full-screen canvas,#stage:-webkit-full-screen img{width:100%;height:100%}
             #stage::backdrop{background:#000}
           </style>
         </head>
         <body>
-          <div id="stage"><canvas id="video"></canvas><img id="fallback" alt="Live Screen Share"></div>
+          <div id="stage">
+            <canvas id="video"></canvas><img id="fallback" alt="Live Screen Share">
+            <div id="lockIndicator" hidden aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            </div>
+          </div>
           <video id="nativeVideo" autoplay muted playsinline></video>
           <div id="status">Connecting to live screen...</div>
           <div id="sound">Tap once for fullscreen + sound</div>
@@ -569,7 +578,7 @@ private final class BrowserHTTPClient {
             const framingMode='\(framingMode)';
             let canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});
             let fallback=document.getElementById('fallback');
-            const nativeVideo=document.getElementById('nativeVideo'),status=document.getElementById('status'),sound=document.getElementById('sound'),expand=document.getElementById('expand');
+            const nativeVideo=document.getElementById('nativeVideo'),status=document.getElementById('status'),sound=document.getElementById('sound'),expand=document.getElementById('expand'),lockIndicator=document.getElementById('lockIndicator');
             const installedViewer=navigator.standalone===true
               ||matchMedia('(display-mode: fullscreen)').matches
               ||matchMedia('(display-mode: standalone)').matches;
@@ -579,7 +588,7 @@ private final class BrowserHTTPClient {
             const AudioContextClass=window.AudioContext||window.webkitAudioContext;
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
             let audioDestination=audioContext?audioContext.createMediaStreamDestination():null;
-            let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false;
+            let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false,fullscreenLocked=false,lockHideTimer=null,cornerHoldTimer=null;
             let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0;
             let viewScale=1,pinchStartDistance=0,pinchStartScale=1,backgrounded=false,lastRestartAt=0,lastCanvasRebuildAt=0,quietReconnect=false,refitOnNextFrame=true;
             const stageFullscreenRequest=stage.requestFullscreen||stage.webkitRequestFullscreen;
@@ -691,6 +700,28 @@ private final class BrowserHTTPClient {
             }
             function fullscreenActive(){
               return nativeFullscreen||!!(document.fullscreenElement||document.webkitFullscreenElement);
+            }
+            function hideLockIndicator(){
+              if(lockHideTimer){clearTimeout(lockHideTimer);lockHideTimer=null}
+              lockIndicator.classList.remove('visible');
+              setTimeout(()=>{if(!lockIndicator.classList.contains('visible'))lockIndicator.hidden=true},240);
+            }
+            function showLockIndicator(){
+              if(!fullscreenActive())return;
+              if(lockHideTimer)clearTimeout(lockHideTimer);
+              lockIndicator.hidden=false;
+              requestAnimationFrame(()=>lockIndicator.classList.add('visible'));
+              lockHideTimer=setTimeout(hideLockIndicator,2400);
+            }
+            function exitImmersive(){
+              if(cornerHoldTimer){clearTimeout(cornerHoldTimer);cornerHoldTimer=null}
+              const exit=document.exitFullscreen||document.webkitExitFullscreen;
+              if((document.fullscreenElement||document.webkitFullscreenElement)&&exit){
+                try{exit.call(document)}catch(_){}
+              }else{
+                const nativeExit=nativeVideo.webkitExitFullscreen||nativeVideo.webkitExitFullScreen;
+                if(nativeFullscreen&&nativeExit){try{nativeExit.call(nativeVideo)}catch(_){}}
+              }
             }
             function updateExpandButton(){
               expand.hidden=installedViewer||fullscreenActive();
@@ -889,7 +920,12 @@ private final class BrowserHTTPClient {
               if(audioLoopGeneration===generation)audioLoopGeneration=0;
               if(audioEnabled&&generation===streamGeneration)setTimeout(()=>runAudio(generation),700);
             }
-            stage.addEventListener('click',activateViewer);
+            stage.addEventListener('click',event=>{
+              if(fullscreenLocked||fullscreenActive()){
+                event.preventDefault();event.stopPropagation();return;
+              }
+              activateViewer();
+            });
             expand.addEventListener('click',event=>{
               event.preventDefault();event.stopPropagation();
               activateViewer();
@@ -899,25 +935,49 @@ private final class BrowserHTTPClient {
               touches[0].clientY-touches[1].clientY
             );
             stage.addEventListener('touchstart',event=>{
+              if(fullscreenLocked){
+                if(event.touches.length===1){
+                  const touch=event.touches[0];
+                  if(touch.clientX<=92&&touch.clientY<=92){
+                    if(cornerHoldTimer)clearTimeout(cornerHoldTimer);
+                    cornerHoldTimer=setTimeout(exitImmersive,1400);
+                  }
+                }
+                event.preventDefault();return;
+              }
               if(event.touches.length!==2)return;
               pinchStartDistance=Math.max(1,touchDistance(event.touches));
               pinchStartScale=viewScale;event.preventDefault();
             },{passive:false});
             stage.addEventListener('touchmove',event=>{
+              if(fullscreenLocked){
+                if(cornerHoldTimer){clearTimeout(cornerHoldTimer);cornerHoldTimer=null}
+                event.preventDefault();return;
+              }
               if(event.touches.length!==2||!pinchStartDistance)return;
               viewScale=Math.min(3,Math.max(1,pinchStartScale*touchDistance(event.touches)/pinchStartDistance));
               needsRedraw=true;event.preventDefault();
             },{passive:false});
             stage.addEventListener('touchend',event=>{
+              if(cornerHoldTimer){clearTimeout(cornerHoldTimer);cornerHoldTimer=null}
               if(event.touches.length<2)pinchStartDistance=0;
+            },{passive:true});
+            stage.addEventListener('touchcancel',()=>{
+              if(cornerHoldTimer){clearTimeout(cornerHoldTimer);cornerHoldTimer=null}
+              pinchStartDistance=0;
             },{passive:true});
             addEventListener('resize',refitForViewport,{passive:true});
             if(window.visualViewport)window.visualViewport.addEventListener('resize',refitForViewport,{passive:true});
             if(screen.orientation&&typeof screen.orientation.addEventListener==='function')screen.orientation.addEventListener('change',refitForViewport);
-            document.addEventListener('fullscreenchange',()=>{stageFullscreenPending=false;needsRedraw=true;updateExpandButton();resize()});
-            document.addEventListener('webkitfullscreenchange',()=>{stageFullscreenPending=false;needsRedraw=true;updateExpandButton();resize()});
-            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;expand.hidden=true;if(!streamsActive)startStreams()});
-            nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;updateExpandButton();needsRedraw=true;resize();startStreams()});
+            const fullscreenChanged=()=>{
+              stageFullscreenPending=false;fullscreenLocked=fullscreenActive();
+              if(fullscreenLocked)showLockIndicator();else hideLockIndicator();
+              needsRedraw=true;updateExpandButton();resize();
+            };
+            document.addEventListener('fullscreenchange',fullscreenChanged);
+            document.addEventListener('webkitfullscreenchange',fullscreenChanged);
+            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;fullscreenLocked=true;showLockIndicator();expand.hidden=true;if(!streamsActive)startStreams()});
+            nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;fullscreenLocked=false;hideLockIndicator();updateExpandButton();needsRedraw=true;resize();startStreams()});
             const releaseStreams=()=>{
               streamsActive=false;streamGeneration++;
               audioEnabled=false;

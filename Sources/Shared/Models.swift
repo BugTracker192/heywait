@@ -57,12 +57,14 @@ struct StreamErrorPayload: Codable, Equatable {
 enum StreamQuality: String, CaseIterable, Codable {
     case balanced
     case sharp
+    case ultra
     case dataSaver
 
     var title: String {
         switch self {
         case .balanced: return "Balanced"
         case .sharp: return "Sharp"
+        case .ultra: return "Ultra"
         case .dataSaver: return "Fast"
         }
     }
@@ -71,6 +73,7 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return 60
         case .sharp: return 60
+        case .ultra: return 60
         case .dataSaver: return 60
         }
     }
@@ -79,6 +82,10 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return 24
         case .sharp: return 30
+        // MJPEG is only a compatibility fallback. Ultra's primary H.264
+        // path remains 60 FPS; attempting 1440p JPEG compression at 60 FPS
+        // inside ReplayKit would increase stalls rather than motion quality.
+        case .ultra: return 30
         case .dataSaver: return 30
         }
     }
@@ -87,6 +94,7 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return 960
         case .sharp: return 1_080
+        case .ultra: return 1_440
         case .dataSaver: return 540
         }
     }
@@ -95,6 +103,7 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return 0.68
         case .sharp: return 0.78
+        case .ultra: return 0.84
         case .dataSaver: return 0.55
         }
     }
@@ -103,6 +112,7 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: return 960
         case .sharp: return 1_080
+        case .ultra: return 1_440
         case .dataSaver: return 540
         }
     }
@@ -142,9 +152,11 @@ enum StreamQuality: String, CaseIterable, Codable {
         switch self {
         case .balanced: bitsPerPixel = 0.10
         case .sharp: bitsPerPixel = 0.14
+        case .ultra: bitsPerPixel = 0.16
         case .dataSaver: bitsPerPixel = 0.09
         }
-        return min(8_000_000, max(800_000, Int(Double(pixels) * Double(framesPerSecond) * bitsPerPixel)))
+        let ceiling = self == .ultra ? 12_000_000 : 8_000_000
+        return min(ceiling, max(800_000, Int(Double(pixels) * Double(framesPerSecond) * bitsPerPixel)))
     }
 
     private func evenDimension(_ value: Int32) -> Int32 {

@@ -29,11 +29,20 @@ if (script.includes("screen.orientation.lock(")) {
 if (!source.includes("#sound{display:none}")) {
   throw new Error("The browser viewer exposes the fullscreen/audio gesture overlay.");
 }
-if (!script.includes("stage.addEventListener('click',activateViewer)")) {
+if (!script.includes("stage.addEventListener('click',event=>") ||
+    !script.includes("if(fullscreenLocked||fullscreenActive()){") ||
+    !script.includes("event.preventDefault();event.stopPropagation();return")) {
   throw new Error("The browser viewer does not provide an unobtrusive activation gesture.");
 }
 if (!source.includes('id="expand"') || !script.includes("expand.addEventListener('click'")) {
   throw new Error("The browser viewer does not provide an explicit fullscreen button.");
+}
+if (!source.includes('<div id="stage">\n            <canvas id="video"></canvas><img id="fallback" alt="Live Screen Share">\n            <div id="lockIndicator"') ||
+    !script.includes("lockHideTimer=setTimeout(hideLockIndicator,2400)") ||
+    !script.includes("cornerHoldTimer=setTimeout(exitImmersive,1400)") ||
+    !script.includes("fullscreenLocked=fullscreenActive()") ||
+    !script.includes("stage.addEventListener('touchcancel'")) {
+  throw new Error("Fullscreen does not auto-lock cleanly with a deliberate corner-hold escape.");
 }
 if (!script.includes("pinchStartScale*touchDistance")) {
   throw new Error("The browser viewer does not provide pinch zoom controls.");
