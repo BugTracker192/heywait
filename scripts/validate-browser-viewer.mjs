@@ -44,8 +44,8 @@ if (!script.includes("const framingMode='fill'") ||
     script.includes("fitMarker")) {
   throw new Error("The browser viewer does not apply the persisted Fit/Fill/Stretch policy.");
 }
-if (!script.includes("if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams()")) {
-  throw new Error("Browser visibility handling can still terminate a fullscreen stream.");
+if (!script.includes("if(!nativeFullscreen)releaseStreams()")) {
+  throw new Error("Safari backgrounding does not restart a suspended DOM-fullscreen stream.");
 }
 if (!script.includes("const restartStreams=()=>") ||
     !script.includes("addEventListener('pageshow'") ||
@@ -53,10 +53,12 @@ if (!script.includes("const restartStreams=()=>") ||
   throw new Error("A resumed or restored browser page does not force a fresh live connection.");
 }
 if (!script.includes("function rebuildLiveCanvas()") ||
+    !script.includes("if(fullscreenActive()){") ||
+    !script.includes("needsRedraw=true;resize();drawDisplayed();return") ||
     !script.includes("canvas.replaceWith(replacement)") ||
     !script.includes("fallback.replaceWith(replacementFallback)") ||
     !script.includes("rebuildLiveCanvas();restartStreams()")) {
-  throw new Error("A resumed fullscreen viewer can reuse WebKit's stale compositor surface.");
+  throw new Error("A resumed fullscreen viewer can replace WebKit's active compositor surface.");
 }
 if (!script.includes("sessionStorage.getItem(resumeMarker)") ||
     !script.includes("(!cachedWidth&&!quietReconnect)?'grid':'none'")) {

@@ -612,6 +612,15 @@ private final class BrowserHTTPClient {
             }
             function rebuildLiveCanvas(){
               if(!stageFullscreenRequest)return;
+              // WebKit's fullscreen compositor keeps a reference to the
+              // canvas node that entered fullscreen. Replacing that node
+              // while Safari is foregrounding leaves fullscreen frozen on
+              // the old surface even though the replacement is live behind
+              // it. Preserve the active fullscreen node and reconnect into
+              // its existing backing store.
+              if(fullscreenActive()){
+                needsRedraw=true;resize();drawDisplayed();return;
+              }
               const now=performance.now();
               if(now-lastCanvasRebuildAt<500)return;
               lastCanvasRebuildAt=now;
@@ -951,7 +960,13 @@ private final class BrowserHTTPClient {
               if(document.hidden){
                 backgrounded=true;
                 quietReconnect=true;
-                if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams();
+                // DOM fullscreen remains reported as active when the Safari
+                // app itself is backgrounded, but its fetch/decoder work is
+                // suspended. Release it so foregrounding creates fresh HTTP
+                // streams and requests a new H.264 keyframe. Native video
+                // fullscreen is different: WebKit may mark its page hidden
+                // while the player is still visibly active.
+                if(!nativeFullscreen)releaseStreams();
               }else if(backgrounded){
                 backgrounded=false;rebuildLiveCanvas();restartStreams();
               }else{
@@ -961,7 +976,7 @@ private final class BrowserHTTPClient {
             addEventListener('pagehide',()=>{
               backgrounded=true;
               quietReconnect=true;
-              if(!fullscreenActive()&&!stageFullscreenPending)releaseStreams();
+              if(!nativeFullscreen)releaseStreams();
             });
             addEventListener('pageshow',event=>{
               if(event.persisted||backgrounded||!streamsActive){backgrounded=false;quietReconnect=true;rebuildLiveCanvas();restartStreams()}
