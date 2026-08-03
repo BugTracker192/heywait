@@ -621,31 +621,38 @@ private final class BrowserHTTPClient {
             }
             function rebuildLiveCanvas(){
               if(!stageFullscreenRequest)return;
-              // WebKit's fullscreen compositor keeps a reference to the
-              // canvas node that entered fullscreen. Replacing that node
-              // while Safari is foregrounding leaves fullscreen frozen on
-              // the old surface even though the replacement is live behind
-              // it. Preserve the active fullscreen node and reconnect into
-              // its existing backing store.
-              if(fullscreenActive()){
+              // Legacy native-video fullscreen owns a MediaStream captured
+              // from this canvas, so its node must remain stable. DOM
+              // fullscreen is different: the stage is the promoted element.
+              // WebKit can leave the stage's old child canvas composited as a
+              // stale snapshot after foregrounding. Keep the fullscreen stage
+              // itself intact, but atomically replace its already-painted
+              // child drawing surface to force a fresh compositor binding.
+              if(nativeFullscreen){
                 needsRedraw=true;resize();drawDisplayed();return;
               }
               const now=performance.now();
               if(now-lastCanvasRebuildAt<500)return;
               lastCanvasRebuildAt=now;
+              const previousCanvas=canvas,previousFallback=fallback;
               const replacement=document.createElement('canvas');
               replacement.id='video';
+              replacement.width=Math.max(1,previousCanvas.width);
+              replacement.height=Math.max(1,previousCanvas.height);
+              replacement.style.display=previousCanvas.style.display||'block';
               const replacementFallback=document.createElement('img');
               replacementFallback.id='fallback';
               replacementFallback.alt='Live Screen Share';
+              replacementFallback.style.display=previousFallback.style.display||'none';
               replacementFallback.style.objectFit=framingMode==='stretch'?'fill':(framingMode==='fill'?'cover':'contain');
-              fallback.onload=null;fallback.onerror=null;fallback.removeAttribute('src');
-              canvas.replaceWith(replacement);
-              fallback.replaceWith(replacementFallback);
               canvas=replacement;
               fallback=replacementFallback;
               ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});
               needsRedraw=true;
+              drawDisplayed();
+              previousFallback.onload=null;previousFallback.onerror=null;previousFallback.removeAttribute('src');
+              previousCanvas.replaceWith(replacement);
+              previousFallback.replaceWith(replacementFallback);
               resize();
               drawDisplayed();
             }

@@ -62,12 +62,17 @@ if (!script.includes("const restartStreams=()=>") ||
   throw new Error("A resumed or restored browser page does not force a fresh live connection.");
 }
 if (!script.includes("function rebuildLiveCanvas()") ||
-    !script.includes("if(fullscreenActive()){") ||
+    !script.includes("if(nativeFullscreen){") ||
     !script.includes("needsRedraw=true;resize();drawDisplayed();return") ||
-    !script.includes("canvas.replaceWith(replacement)") ||
-    !script.includes("fallback.replaceWith(replacementFallback)") ||
+    !script.includes("const previousCanvas=canvas,previousFallback=fallback") ||
+    !script.includes("drawDisplayed();\n              previousFallback.onload=null") ||
+    !script.includes("previousCanvas.replaceWith(replacement)") ||
+    !script.includes("previousFallback.replaceWith(replacementFallback)") ||
     !script.includes("rebuildLiveCanvas();restartStreams()")) {
   throw new Error("A resumed fullscreen viewer can replace WebKit's active compositor surface.");
+}
+if (script.includes("if(fullscreenActive()){\n                needsRedraw=true;resize();drawDisplayed();return")) {
+  throw new Error("DOM fullscreen still preserves WebKit's stale child canvas after foregrounding.");
 }
 if (!script.includes("sessionStorage.getItem(resumeMarker)") ||
     !script.includes("(!cachedWidth&&!quietReconnect)?'grid':'none'")) {
