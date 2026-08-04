@@ -132,13 +132,29 @@ if (videoFetches !== 2) {
 
 elements.nativeVideo.dispatch("webkitendfullscreen");
 const afterFullscreenExit = videoFetches;
+elements.nativeVideo.muted = false;
+elements.nativeVideo.volume = 1;
 document.hidden = true;
 for (const callback of documentListeners.get("visibilitychange") ?? []) callback();
+if (!elements.nativeVideo.muted || elements.nativeVideo.volume !== 0) {
+  throw new Error("Backgrounding the DOM viewer did not mute its media audio immediately.");
+}
 document.hidden = false;
 for (const callback of documentListeners.get("visibilitychange") ?? []) callback();
+if (elements.nativeVideo.volume !== 1) {
+  throw new Error("Foregrounding the viewer did not restore its media volume.");
+}
 
 if (videoFetches !== afterFullscreenExit + 1) {
   throw new Error("A rapid visible-page return must not be swallowed by recovery coalescing.");
+}
+
+elements.nativeVideo.dispatch("webkitbeginfullscreen");
+elements.nativeVideo.muted = false;
+elements.nativeVideo.volume = 1;
+for (const callback of windowListeners.get("pagehide") ?? []) callback();
+if (!elements.nativeVideo.muted || elements.nativeVideo.volume !== 0) {
+  throw new Error("Leaving a legacy native fullscreen viewer did not mute background audio.");
 }
 
 console.log("Browser lifecycle recovery smoke test passed.");

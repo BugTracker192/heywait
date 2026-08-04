@@ -74,7 +74,7 @@ if (!script.includes("const restartStreams=(allowHidden=false,force=false)=>") |
     !script.includes("function recoverForeground(allowHidden=false,force=false,refreshNative=nativeFullscreen,coalesce=true)") ||
     !script.includes("coalesce&&streamsActive&&now-lastForegroundRecoveryAt<800") ||
     !script.includes("addEventListener('pageshow'") ||
-    !script.includes("addEventListener('online',()=>recoverForeground(nativeFullscreen,true,nativeFullscreen))")) {
+    !script.includes("addEventListener('online',()=>{recoverForeground(nativeFullscreen,true,nativeFullscreen)")) {
   throw new Error("A resumed or restored browser page does not force a fresh live connection.");
 }
 if (!script.includes("function rebuildLiveCanvas(force=false)") ||
@@ -180,6 +180,15 @@ if (!script.includes("audioContext.createMediaStreamDestination()") ||
     !script.includes("audioDestination.stream.getAudioTracks()") ||
     !script.includes("if(stageFullscreenRequest||!audioDestination)source.connect(audioContext.destination)")) {
   throw new Error("Captured app audio is not routed through both fullscreen playback paths.");
+}
+if (!script.includes("function silenceBackgroundAudio()") ||
+    !script.includes("if(audioAbort){audioAbort.abort();audioAbort=null}") ||
+    !script.includes("nativeVideo.muted=true") ||
+    !script.includes("audioContext.suspend()") ||
+    !script.includes("function restoreForegroundAudio()") ||
+    !script.includes("nativeVideo.muted=!audioUnlocked") ||
+    !script.includes("restoreForegroundAudio();")) {
+  throw new Error("Receiver audio is not muted in the background and restored on foreground return.");
 }
 if (!script.includes("Math.min(devicePixelRatio||1,1.25)")) {
   throw new Error("The browser viewer is rendering into an oversized Retina canvas.");
