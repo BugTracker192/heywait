@@ -139,8 +139,11 @@ final class H264Encoder {
         set(created, kVTCompressionPropertyKey_MaxFrameDelayCount, NSNumber(value: 0))
         set(created, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_Baseline_AutoLevel)
         set(created, kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: quality.framesPerSecond))
-        set(created, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: max(1, quality.framesPerSecond / 2)))
-        set(created, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: 0.5))
+        // New viewers and orientation changes already request an immediate key
+        // frame. A forced IDR every half-second only creates bitrate/CPU bursts
+        // that Safari presents as periodic freezes, especially at 60 FPS.
+        set(created, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: max(1, quality.framesPerSecond * 2)))
+        set(created, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: 2.0))
         let pixelTransferProperties: [CFString: Any] = [
             kVTPixelTransferPropertyKey_RealTime: true,
             kVTPixelTransferPropertyKey_ScalingMode: kVTScalingMode_Normal

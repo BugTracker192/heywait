@@ -24,11 +24,19 @@ new Function(script);
 if (script.includes("height=u32(v,4);orientation=u32(v,8)")) {
   throw new Error("Orientation metadata is shadowing the persistent renderer state.");
 }
-if (!script.includes("orientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1")) {
-  throw new Error("Browser orientation packets are not updating the renderer state.");
+if (!script.includes("encodedOrientation=normalizedOrientation") ||
+    !script.includes("decodedOrientations.push({timestamp:timestamp,orientation:encodedOrientation})") ||
+    !script.includes("orientation=nextOrientation")) {
+  throw new Error("Browser orientation metadata is not committed with its decoded frame.");
 }
-if (script.includes("screen.orientation.lock(")) {
-  throw new Error("The viewer must not force a landscape side and create an orientation feedback loop.");
+if (!script.includes("function syncSourceOrientation()") ||
+    !script.includes("screen.orientation.lock(target)") ||
+    !script.includes("const target=landscape?'landscape':'portrait'") ||
+    !script.includes("if(nativeFullscreen||!(fullscreenActive()||installedViewer))return")) {
+  throw new Error("Fullscreen does not follow the sender's frame orientation when Safari supports locking.");
+}
+if (script.includes("addEventListener('change',syncSourceOrientation")) {
+  throw new Error("Receiver rotation events must not feed back into the sender-driven orientation lock.");
 }
 if (!source.includes("#sound{display:none}")) {
   throw new Error("The browser viewer exposes the fullscreen/audio gesture overlay.");
@@ -182,6 +190,8 @@ if (script.includes("waitingForRecoveryKeyframe") ||
   throw new Error("The browser decoder still contains freeze-inducing queue resets.");
 }
 if (!source.includes("canEncodeNextH264Frame") ||
+    !source.includes("return h264ClientCount > h264BackpressuredClients.count") ||
+    !source.includes("if h264Backpressured, frame.configuration == nil") ||
     !source.includes("outstanding >= 2")) {
   throw new Error("Browser backpressure is not applied before H.264 encoding.");
 }

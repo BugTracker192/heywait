@@ -42,7 +42,10 @@ final class BrowserStreamServer {
     var canEncodeNextH264Frame: Bool {
         clientCountLock.lock()
         defer { clientCountLock.unlock() }
-        return h264ClientCount > 0 && h264BackpressuredClients.isEmpty
+        // A suspended Safari tab can leave its old HTTP stream alive while a
+        // fresh foreground connection is already receiving. Never let that
+        // obsolete socket stall every healthy viewer.
+        return h264ClientCount > h264BackpressuredClients.count
     }
 
     var hasMJPEGClients: Bool {
@@ -327,8 +330,19 @@ private final class BrowserHTTPClient {
     func publish(h264 frame: H264Encoder.EncodedFrame) {
         guard streamKind == .h264, !stopped else { return }
 
+        // Keep at most one recoverable dependency chain behind an in-flight
+        // TCP write. When Safari suspends this particular connection, dropping
+        // its delta frames is much cheaper than building latency or forcing the
+        // shared encoder to stop for another healthy viewer.
+        if h264Backpressured, frame.configuration == nil {
+            return
+        }
+
         var payload = Data()
         if let configuration = frame.configuration {
+            if h264Backpressured, !h264SendQueue.isEmpty {
+                return
+            }
             payload.append(BrowserH264Wire.configurationPacket(configuration))
             isAwaitingH264KeyFrame = false
         } else if isAwaitingH264KeyFrame {
@@ -403,6 +417,15 @@ private final class BrowserHTTPClient {
     private func setH264Backpressured(_ value: Bool) {
         guard h264Backpressured != value else { return }
         h264Backpressured = value
+        if value {
+            // Discard any queued delta frame and resume this client from the
+            // next key frame once its current write drains.
+            h264SendQueue.removeAll(keepingCapacity: true)
+            if !isAwaitingH264KeyFrame {
+                isAwaitingH264KeyFrame = true
+                onNeedsH264KeyFrame?()
+            }
+        }
         onH264BackpressureChange?(value)
     }
 
@@ -583,7 +606,8 @@ private final class BrowserHTTPClient {
               ||matchMedia('(display-mode: fullscreen)').matches
               ||matchMedia('(display-mode: standalone)').matches;
             expand.hidden=installedViewer;
-            let decoder=null,decoderSignature='',displayed=null,orientation=1,usingFallback=false;
+            let decoder=null,decoderSignature='',displayed=null,orientation=1,encodedOrientation=1,usingFallback=false;
+            let decodedOrientations=[];
             let cachedWidth=0,cachedHeight=0,needsRedraw=false,freshFrameReady=false,streamGeneration=0,streamsActive=false,h264Abort=null;
             const AudioContextClass=window.AudioContext||window.webkitAudioContext;
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
@@ -592,7 +616,7 @@ private final class BrowserHTTPClient {
             let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0;
             let viewScale=1,pinchStartDistance=0,pinchStartScale=1,backgrounded=false,lastRestartAt=0,lastCanvasRebuildAt=0,quietReconnect=false,refitOnNextFrame=true;
             let decodedFrameSequence=0,fallbackFrameSequence=0,foregroundRecoveryToken=0,recoveryWatchdog=null,h264RetryTimer=null,mjpegRetryTimer=null,h264RetryCount=0,stableH264Frames=0,nativeMediaRebuilding=false,lastForegroundRecoveryAt=-10000;
-            let nativeExitRecoveryTimer=null,nativeFullscreenEpoch=0,nativeCounterLast=-1,nativeCounterTrusted=false;
+            let nativeExitRecoveryTimer=null,nativeFullscreenEpoch=0,nativeCounterLast=-1,nativeCounterTrusted=false,sourceOrientationLock='';
             const stageFullscreenRequest=stage.requestFullscreen||stage.webkitRequestFullscreen;
             try{
               quietReconnect=sessionStorage.getItem(resumeMarker)==='1';
@@ -812,6 +836,39 @@ private final class BrowserHTTPClient {
               viewScale=1;
               needsRedraw=true;
             }
+            function sourceDisplayIsLandscape(){
+              if(!cachedWidth||!cachedHeight)return null;
+              const quarter=[5,6,7,8].includes(orientation);
+              const displayWidth=quarter?cachedHeight:cachedWidth;
+              const displayHeight=quarter?cachedWidth:cachedHeight;
+              return displayWidth>=displayHeight;
+            }
+            function syncSourceOrientation(){
+              // Safari 26 can follow the source while an element (or an
+              // installed fullscreen web app) owns fullscreen. The target is
+              // derived only from sender frames, never from receiver rotation
+              // events, which avoids the old orientation feedback loop.
+              if(nativeFullscreen||!(fullscreenActive()||installedViewer))return;
+              if(!screen.orientation||typeof screen.orientation.lock!=='function')return;
+              const landscape=sourceDisplayIsLandscape();
+              if(landscape===null)return;
+              const target=landscape?'landscape':'portrait';
+              if(sourceOrientationLock===target)return;
+              sourceOrientationLock=target;
+              try{
+                const result=screen.orientation.lock(target);
+                if(result&&typeof result.then==='function'){
+                  result.then(()=>setTimeout(refitForViewport,0)).catch(()=>{
+                    if(sourceOrientationLock===target)sourceOrientationLock='';
+                  });
+                }
+              }catch(_){if(sourceOrientationLock===target)sourceOrientationLock=''}
+            }
+            function releaseSourceOrientation(){
+              sourceOrientationLock='';
+              if(installedViewer||!screen.orientation||typeof screen.orientation.unlock!=='function')return;
+              try{screen.orientation.unlock()}catch(_){}
+            }
             function activateViewer(){
               if(audioContext){
                 audioContext.resume().then(()=>{
@@ -862,6 +919,13 @@ private final class BrowserHTTPClient {
               needsRedraw=false;
             }
             function presentFrame(frame){
+              let nextOrientation=orientation;
+              const timestamp=Number(frame.timestamp);
+              while(decodedOrientations.length&&decodedOrientations[0].timestamp<=timestamp){
+                nextOrientation=decodedOrientations.shift().orientation;
+              }
+              const sourceOrientationChanged=orientation!==nextOrientation;
+              orientation=nextOrientation;
               if(displayed)displayed.close();
               displayed=frame;
               cachedWidth=displayed.displayWidth||displayed.codedWidth;
@@ -876,6 +940,7 @@ private final class BrowserHTTPClient {
                 refitOnNextFrame=false;
               }
               drawDisplayed();
+              if(sourceOrientationChanged)syncSourceOrientation();
               nativePresentedFrames();
             }
             function render(){
@@ -897,12 +962,13 @@ private final class BrowserHTTPClient {
               const width=u32(v,0),height=u32(v,4),nextOrientation=u32(v,8);const nal=v[12],slen=u32(v,13);
               const sps=v.slice(17,17+slen),po=17+slen,plen=u32(v,po),pps=v.slice(po+4,po+4+plen);
               const codec='avc1.'+[sps[1],sps[2],sps[3]].map(x=>x.toString(16).padStart(2,'0')).join('');
-              if(orientation!==nextOrientation){viewScale=1;refitOnNextFrame=true}
-              orientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1;
-              needsRedraw=true;
+              const normalizedOrientation=(nextOrientation>=1&&nextOrientation<=8)?nextOrientation:1;
+              if(encodedOrientation!==normalizedOrientation)refitOnNextFrame=true;
+              encodedOrientation=normalizedOrientation;
               const signature=codec+':'+width+'x'+height+':'+Array.from(sps)+':'+Array.from(pps);
               if(decoder&&decoder.state==='configured'&&decoderSignature===signature)return;
               if(decoder&&decoder.state!=='closed')decoder.close();
+              decodedOrientations.length=0;
               decoder=new VideoDecoder({
                 // Draw from the decoder callback as well as rAF. WebKit can
                 // suspend the page animation clock while its native video
@@ -928,7 +994,11 @@ private final class BrowserHTTPClient {
                   const type=view[0],timestamp=u64(view,1),payload=view.slice(13,13+length);offset+=13+length;
                   if(type===0)configure(payload);
                   else if(decoder&&decoder.state==='configured'){
-                    decoder.decode(new EncodedVideoChunk({type:type===1?'key':'delta',timestamp:timestamp,data:payload}));
+                    decodedOrientations.push({timestamp:timestamp,orientation:encodedOrientation});
+                    if(decodedOrientations.length>180)decodedOrientations.splice(0,decodedOrientations.length-180);
+                    try{
+                      decoder.decode(new EncodedVideoChunk({type:type===1?'key':'delta',timestamp:timestamp,data:payload}));
+                    }catch(_){decodedOrientations.pop();throw _}
                   }
                 }
                 if(offset)data=data.slice(offset);
@@ -1078,6 +1148,7 @@ private final class BrowserHTTPClient {
               stageFullscreenPending=false;fullscreenLocked=fullscreenActive();
               if(fullscreenLocked)showLockIndicator();else hideLockIndicator();
               needsRedraw=true;updateExpandButton();resize();
+              if(fullscreenLocked)setTimeout(syncSourceOrientation,0);else releaseSourceOrientation();
             };
             document.addEventListener('fullscreenchange',fullscreenChanged);
             document.addEventListener('webkitfullscreenchange',fullscreenChanged);
@@ -1111,7 +1182,7 @@ private final class BrowserHTTPClient {
               if(audioAbort)audioAbort.abort();
               fallback.removeAttribute('src');
               if(decoder&&decoder.state!=='closed')decoder.close();
-              decoder=null;decoderSignature='';freshFrameReady=false;
+              decoder=null;decoderSignature='';decodedOrientations.length=0;freshFrameReady=false;
             };
             const startStreams=()=>{
               if(streamsActive)return;
