@@ -50,7 +50,7 @@ Jailbroken iPhone (iOS 15–16.5.1)            Viewing iPhone (iOS 18–26)
 
 The receiver advertises `_screenshare._tcp`. The sender remembers the receiver's stable Bonjour service name and pairing code in its shared App Group. The broadcast extension finds that receiver, authenticates, and forces a new H.264 keyframe after every successful connection.
 
-The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v16` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG. App audio uses a separate bounded PCM stream. Current iOS 26 Safari takes the live canvas stage fullscreen directly; older iPhones retain a native-video fallback. After foregrounding, the page keeps the promoted fullscreen stage in place but atomically replaces its already-painted child canvas before requesting a fresh keyframe connection. Native-video fullscreen also performs bounded automatic `play()` retries, restores a detached media stream, and resumes its previously unlocked audio context when iOS pauses playback while Safari is backgrounded. A restored tab stays visually quiet until its live frame returns.
+The ReplayKit extension always exposes the private browser viewer while a broadcast is live, even when the native Receiver App is the selected viewing method. The QR uses TCP port `49373`, the path proven reachable by the original browser viewer on the target devices. The upload extension has a fresh `v17` bundle identity so iOS and TrollStore cannot relaunch a cached extension from an older IPA. Current browsers receive the real-time VideoToolbox H.264 path through a bounded chunked HTTP stream and decode with WebCodecs. Browsers without WebCodecs automatically fall back to bounded MJPEG. App audio uses a separate bounded PCM stream. Current iOS 26 Safari takes the live canvas stage fullscreen directly; older iPhones retain a native-video fallback. Foreground recovery now forces a fresh H.264/keyframe connection even while native fullscreen reports the page as hidden, redraws MJPEG fallback frames through the captured canvas, and reconstructs the canvas, capture track, and MediaStream if AVKit remains attached to a stale surface. A bounded one-shot page recovery replaces the manual reload only if WebKit still fails to produce live frames. A restored tab stays visually quiet until its live frame returns.
 
 Browser responses, chunk boundaries, and MJPEG parts are serialized with explicit RFC-style `CRLF` delimiters. This avoids Safari rejecting a response when a Swift multiline string omits its final line feed.
 
@@ -89,7 +89,7 @@ The sender includes a nested Broadcast Upload Extension and an App Group. Instal
 If using a paid Apple development profile instead, replace these three identifiers before generating the project:
 
 - `dev.screenshare.sender`
-- `dev.screenshare.sender.broadcast.v16`
+- `dev.screenshare.sender.broadcast.v17`
 - `group.dev.screenshare.sender`
 
 Update them consistently in `project.yml`, `Config/*.entitlements`, and `Sources/Shared/AppConstants.swift`.
@@ -132,7 +132,7 @@ On stock iOS 18–26, a normal app or Safari page can be suspended after enterin
 
 The native Receiver declares audio playback background mode. When the mirrored app is genuinely producing audio, the receiver keeps that audio and its live session active without the former artificial 60-second cutoff. A silent stream receives only UIKit's finite completion window; iOS controls its duration, and Receiver reconnects when reopened if the system expires it.
 
-Safari cannot continuously run the WebCodecs decoder after the user goes Home. Browser mode therefore disconnects cleanly while hidden and forces a fresh H.264/keyframe connection on `visibilitychange`, `pageshow`, focus, or network restoration. It rebuilds the fullscreen drawing surface on return and suppresses reconnect text after the first successful frame; depending on what state WebKit preserved, the viewer shows the previous frame or a plain black surface until live video resumes.
+Safari cannot continuously run the WebCodecs decoder after the user goes Home. Browser mode therefore forces a fresh H.264/keyframe connection on `visibilitychange`, `pageshow`, focus, or network restoration, including the legacy native-fullscreen state where WebKit continues reporting the page as hidden. Clustered foreground events are coalesced so they cannot repeatedly abort the new connection. If native AVKit remains stale while decoded frames are advancing, the viewer exits that broken fullscreen instance, rebuilds its capture graph safely in the visible page, and resumes inline; iOS then requires one user tap to enter fullscreen again. If even the visible page receives no frames, a bounded one-shot self-refresh replaces the former manual reload.
 
 For explicitly visible background viewing:
 

@@ -4,6 +4,10 @@ const source = fs.readFileSync(
   new URL("../Sources/BroadcastExtension/BrowserStreamServer.swift", import.meta.url),
   "utf8",
 );
+const sampleHandler = fs.readFileSync(
+  new URL("../Sources/BroadcastExtension/SampleHandler.swift", import.meta.url),
+  "utf8",
+);
 const match = source.match(/<script>\s*([\s\S]*?)\s*<\/script>/);
 
 if (!match) {
@@ -56,19 +60,22 @@ if (!script.includes("const framingMode='fill'") ||
 if (!script.includes("if(!nativeFullscreen)releaseStreams()")) {
   throw new Error("Safari backgrounding does not restart a suspended DOM-fullscreen stream.");
 }
-if (!script.includes("const restartStreams=()=>") ||
+if (!script.includes("const restartStreams=(allowHidden=false,force=false)=>") ||
+    !script.includes("if(document.hidden&&!allowHidden)return false") ||
+    !script.includes("if(!force&&now-lastRestartAt<500)return false") ||
+    !script.includes("function recoverForeground(allowHidden=false,force=false,refreshNative=nativeFullscreen,coalesce=true)") ||
+    !script.includes("coalesce&&streamsActive&&now-lastForegroundRecoveryAt<800") ||
     !script.includes("addEventListener('pageshow'") ||
-    !script.includes("addEventListener('online',restartStreams)")) {
+    !script.includes("addEventListener('online',()=>recoverForeground(nativeFullscreen,true,nativeFullscreen))")) {
   throw new Error("A resumed or restored browser page does not force a fresh live connection.");
 }
-if (!script.includes("function rebuildLiveCanvas()") ||
-    !script.includes("if(nativeFullscreen){") ||
+if (!script.includes("function rebuildLiveCanvas(force=false)") ||
+    !script.includes("if(nativeFullscreen&&!force){") ||
     !script.includes("needsRedraw=true;resize();drawDisplayed();return") ||
     !script.includes("const previousCanvas=canvas,previousFallback=fallback") ||
     !script.includes("drawDisplayed();\n              previousFallback.onload=null") ||
     !script.includes("previousCanvas.replaceWith(replacement)") ||
-    !script.includes("previousFallback.replaceWith(replacementFallback)") ||
-    !script.includes("rebuildLiveCanvas();restartStreams()")) {
+    !script.includes("previousFallback.replaceWith(replacementFallback)")) {
   throw new Error("A resumed fullscreen viewer can replace WebKit's active compositor surface.");
 }
 if (script.includes("if(fullscreenActive()){\n                needsRedraw=true;resize();drawDisplayed();return")) {
@@ -80,6 +87,11 @@ if (!script.includes("sessionStorage.getItem(resumeMarker)") ||
 }
 if (script.includes("location.reload()")) {
   throw new Error("The browser viewer reloads and loses its orientation state after foregrounding.");
+}
+if (!script.includes("function hardRecoverPage()") ||
+    !script.includes("location.replace(location.href)") ||
+    !script.includes("Date.now()-lastReload<15000")) {
+  throw new Error("The browser viewer lacks a bounded reload-equivalent recovery for a poisoned WebKit pipeline.");
 }
 if (!script.includes("navigator.standalone===true")) {
   throw new Error("The browser viewer does not identify installed web-app mode.");
@@ -95,10 +107,42 @@ if (!script.includes("function resumeNativePlayback(resetAttempts=false,allowHid
     !script.includes("if(nativeVideo.srcObject!==nativeStream)nativeVideo.srcObject=nativeStream") ||
     !script.includes("try{result=nativeVideo.play()}catch(_)") ||
     !script.includes("nativeVideo.addEventListener('pause'") ||
-    !script.includes("restartStreams();resumeNativePlayback(true)") ||
     !script.includes("addEventListener('pageshow'") ||
-    !script.includes("resumeNativePlayback(true,true);\n            });")) {
+    !script.includes("recoverForeground(nativeFullscreen,true,nativeFullscreen)")) {
   throw new Error("Native Safari fullscreen does not resume autoplay after foregrounding.");
+}
+if (!script.includes("function rebuildNativeMedia(replaceCanvas=false)") ||
+    !script.includes("oldCanvasStream.getVideoTracks()") ||
+    !script.includes("nativeVideo.srcObject=freshNativeStream") ||
+    !script.includes("nativeMediaRebuilding=false;") ||
+    !script.includes("}finally{") ||
+    !script.includes("rebuildNativeMedia(true)") ||
+    !script.includes("function watchForegroundRecovery(refreshNative)")) {
+  throw new Error("Safari recovery does not replace a poisoned canvas-capture MediaStream graph.");
+}
+const watchdog = script.slice(
+  script.indexOf("function watchForegroundRecovery(refreshNative)"),
+  script.indexOf("function recoverForeground(", script.indexOf("function watchForegroundRecovery(refreshNative)")),
+);
+if (watchdog.includes("rebuildNativeMedia(")) {
+  throw new Error("Native media is rebuilt while AVKit fullscreen may still own the source.");
+}
+if (!script.includes("function handleH264Failure(generation)") ||
+    !script.includes("restartStreams(nativeFullscreen,true)") ||
+    !script.includes("h264RetryCount<3||nativeFullscreen") ||
+    !script.includes("fallbackFrameSequence++") ||
+    !script.includes("generation===streamGeneration&&usingFallback") ||
+    !script.includes("if(usingFallback&&'VideoDecoder' in window") ||
+    !sampleHandler.includes("if browserServer.hasMJPEGClients, let browserEncoder")) {
+  throw new Error("H.264 failure can still strand native fullscreen on a stale canvas.");
+}
+if (!script.includes("function cancelForegroundRecovery()") ||
+    !script.includes("cancelForegroundRecovery();\n                lastForegroundRecoveryAt=-10000;\n                backgrounded=true") ||
+    !script.includes("function exitBrokenNativeFullscreen()") ||
+    !script.includes("nativeFullscreenEpoch===epoch") ||
+    !script.includes("nativeCounterTrusted") ||
+    !script.includes("nativePresentedFrames()")) {
+  throw new Error("Foreground recovery lacks cancellation or a safe native-fullscreen escape path.");
 }
 const stageFullscreenIndex = script.indexOf("stageFullscreenRequest.call(stage)");
 const legacyFullscreenIndex = script.indexOf("nativeRequest.call(nativeVideo)");

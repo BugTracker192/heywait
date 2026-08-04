@@ -574,7 +574,7 @@ private final class BrowserHTTPClient {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
           </button>
           <script>
-            const key='\(accessKey)',resumeMarker='screen-share-has-frame-'+key,stage=document.getElementById('stage');
+            const key='\(accessKey)',resumeMarker='screen-share-has-frame-'+key,reloadMarker='screen-share-recovery-reload-'+key,stage=document.getElementById('stage');
             const framingMode='\(framingMode)';
             let canvas=document.getElementById('video'),ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});
             let fallback=document.getElementById('fallback');
@@ -591,6 +591,8 @@ private final class BrowserHTTPClient {
             let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false,fullscreenLocked=false,lockHideTimer=null,cornerHoldTimer=null,nativeResumeTimer=null,nativeResumeAttempt=0;
             let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0;
             let viewScale=1,pinchStartDistance=0,pinchStartScale=1,backgrounded=false,lastRestartAt=0,lastCanvasRebuildAt=0,quietReconnect=false,refitOnNextFrame=true;
+            let decodedFrameSequence=0,fallbackFrameSequence=0,foregroundRecoveryToken=0,recoveryWatchdog=null,h264RetryTimer=null,mjpegRetryTimer=null,h264RetryCount=0,stableH264Frames=0,nativeMediaRebuilding=false,lastForegroundRecoveryAt=-10000;
+            let nativeExitRecoveryTimer=null,nativeFullscreenEpoch=0,nativeCounterLast=-1,nativeCounterTrusted=false;
             const stageFullscreenRequest=stage.requestFullscreen||stage.webkitRequestFullscreen;
             try{
               quietReconnect=sessionStorage.getItem(resumeMarker)==='1';
@@ -610,8 +612,8 @@ private final class BrowserHTTPClient {
                 canvas.width=w;canvas.height=h;needsRedraw=true;
               }
             }
-            function showFullscreenHelp(){
-              if(quietReconnect||cachedWidth){status.style.display='none';return}
+            function showFullscreenHelp(force=false){
+              if(!force&&(quietReconnect||cachedWidth)){status.style.display='none';return}
               status.textContent='The live video is still starting. Wait one second, then tap fullscreen again.';
               status.style.display='grid';
               setTimeout(()=>{
@@ -619,8 +621,8 @@ private final class BrowserHTTPClient {
                 status.style.display=cachedWidth?'none':'grid';
               },3200);
             }
-            function rebuildLiveCanvas(){
-              if(!stageFullscreenRequest)return;
+            function rebuildLiveCanvas(force=false){
+              if(!stageFullscreenRequest&&!force)return;
               // Legacy native-video fullscreen owns a MediaStream captured
               // from this canvas, so its node must remain stable. DOM
               // fullscreen is different: the stage is the promoted element.
@@ -628,7 +630,7 @@ private final class BrowserHTTPClient {
               // stale snapshot after foregrounding. Keep the fullscreen stage
               // itself intact, but atomically replace its already-painted
               // child drawing surface to force a fresh compositor binding.
-              if(nativeFullscreen){
+              if(nativeFullscreen&&!force){
                 needsRedraw=true;resize();drawDisplayed();return;
               }
               const now=performance.now();
@@ -663,9 +665,50 @@ private final class BrowserHTTPClient {
                 if(audioDestination)tracks.push(...audioDestination.stream.getAudioTracks());
                 nativeStream=new MediaStream(tracks);
                 nativeVideo.srcObject=nativeStream;
+                nativeCounterLast=-1;nativeCounterTrusted=false;
                 nativeVideo.play().catch(()=>{});
               }
               return !!nativeStream;
+            }
+            function rebuildNativeMedia(replaceCanvas=false){
+              if(nativeMediaRebuilding||typeof canvas.captureStream!=='function')return false;
+              nativeMediaRebuilding=true;
+              const oldCanvasStream=canvasStream,oldNativeStream=nativeStream,oldMuted=nativeVideo.muted;
+              let freshCanvasStream=null,freshNativeStream=null;
+              try{
+                if(replaceCanvas)rebuildLiveCanvas(true);
+                if(nativeResumeTimer){clearTimeout(nativeResumeTimer);nativeResumeTimer=null}
+                freshCanvasStream=canvas.captureStream(60);
+                const tracks=[...freshCanvasStream.getVideoTracks()];
+                if(audioDestination)tracks.push(...audioDestination.stream.getAudioTracks());
+                freshNativeStream=new MediaStream(tracks);
+                canvasStream=freshCanvasStream;nativeStream=freshNativeStream;
+                nativeVideo.muted=!audioUnlocked;
+                nativeVideo.srcObject=freshNativeStream;
+                nativeCounterLast=-1;nativeCounterTrusted=false;
+                nativeVideo.play().catch(()=>{});
+                needsRedraw=true;resize();drawDisplayed();
+                const nativeTrack=canvasStream&&canvasStream.getVideoTracks()[0];
+                if(nativeTrack&&typeof nativeTrack.requestFrame==='function')nativeTrack.requestFrame();
+                if(oldCanvasStream){
+                  for(const track of oldCanvasStream.getVideoTracks()){
+                    try{track.stop()}catch(_){}
+                  }
+                }
+                return true;
+              }catch(_){
+                if(freshCanvasStream){
+                  for(const track of freshCanvasStream.getVideoTracks()){
+                    try{track.stop()}catch(_){}
+                  }
+                }
+                canvasStream=oldCanvasStream;
+                nativeStream=oldNativeStream;
+                try{nativeVideo.srcObject=oldNativeStream;nativeVideo.muted=oldMuted}catch(_){}
+                return false;
+              }finally{
+                nativeMediaRebuilding=false;
+              }
             }
             function resumeNativePlayback(resetAttempts=false,allowHidden=false){
               if(resetAttempts)nativeResumeAttempt=0;
@@ -696,6 +739,10 @@ private final class BrowserHTTPClient {
             }
             function enterImmersive(){
               if(!freshFrameReady){showFullscreenHelp();return}
+              if(usingFallback&&'VideoDecoder' in window&&'EncodedVideoChunk' in window){
+                quietReconnect=true;status.style.display='none';h264RetryCount=0;stableH264Frames=0;
+                restartStreams(false,true);showFullscreenHelp(true);return;
+              }
               // iOS 26 supports fullscreen DOM elements. Prefer the live
               // stage so WebKit keeps executing the decoder and drawing the
               // canvas. A canvas-capture MediaStream handed to native video
@@ -819,6 +866,8 @@ private final class BrowserHTTPClient {
               displayed=frame;
               cachedWidth=displayed.displayWidth||displayed.codedWidth;
               cachedHeight=displayed.displayHeight||displayed.codedHeight;
+              decodedFrameSequence++;stableH264Frames++;
+              if(stableH264Frames>=120){h264RetryCount=0;stableH264Frames=120}
               freshFrameReady=true;quietReconnect=false;status.style.display='none';
               try{sessionStorage.setItem(resumeMarker,'1')}catch(_){}
               resize();
@@ -827,10 +876,11 @@ private final class BrowserHTTPClient {
                 refitOnNextFrame=false;
               }
               drawDisplayed();
+              nativePresentedFrames();
             }
             function render(){
               resize();
-              if(needsRedraw)drawDisplayed();
+              if(!usingFallback&&needsRedraw)drawDisplayed();
               requestAnimationFrame(render);
             }
             requestAnimationFrame(render);
@@ -859,7 +909,7 @@ private final class BrowserHTTPClient {
                 // player is fullscreen, but decoded frames must keep feeding
                 // the captured canvas stream.
                 output:presentFrame,
-                error:()=>startMJPEG(streamGeneration)
+                error:()=>handleH264Failure(streamGeneration)
               });
               decoder.configure({codec:codec,description:avcConfig(sps,pps,nal),codedWidth:width,codedHeight:height,optimizeForLatency:true,hardwareAcceleration:'prefer-hardware'});
               decoderSignature=signature;
@@ -889,19 +939,40 @@ private final class BrowserHTTPClient {
               if(h264Abort)h264Abort.abort();
               if(decoder&&decoder.state!=='closed')decoder.close();
               decoder=null;decoderSignature='';
-              canvas.style.display='block';fallback.style.display='none';
+              canvas.style.display='none';fallback.style.display='block';
               status.style.display=(!cachedWidth&&!quietReconnect)?'grid':'none';
               const connect=()=>{fallback.src='/stream?k='+key+'&t='+Date.now()};
               fallback.onload=()=>{
                 if(generation!==streamGeneration)return;
-                quietReconnect=false;canvas.style.display='none';fallback.style.display='block';status.style.display='none';
+                fallbackFrameSequence++;
+                cachedWidth=fallback.naturalWidth||cachedWidth;cachedHeight=fallback.naturalHeight||cachedHeight;
+                freshFrameReady=true;quietReconnect=false;canvas.style.display='none';fallback.style.display='block';status.style.display='none';
                 try{sessionStorage.setItem(resumeMarker,'1')}catch(_){}
               };
               fallback.onerror=()=>{
                 if(generation!==streamGeneration)return;
-                status.style.display=(!cachedWidth&&!quietReconnect)?'grid':'none';setTimeout(connect,700);
+                status.style.display=(!cachedWidth&&!quietReconnect)?'grid':'none';
+                if(mjpegRetryTimer)clearTimeout(mjpegRetryTimer);
+                mjpegRetryTimer=setTimeout(()=>{
+                  mjpegRetryTimer=null;
+                  if(generation===streamGeneration&&usingFallback)connect();
+                },700);
               };
               connect();
+            }
+            function handleH264Failure(generation){
+              if(generation!==streamGeneration||h264RetryTimer)return;
+              stableH264Frames=0;
+              if((h264RetryCount<3||nativeFullscreen)&&'VideoDecoder' in window&&'EncodedVideoChunk' in window){
+                const delay=[250,650,1400,1800][Math.min(h264RetryCount,3)];h264RetryCount++;
+                h264RetryTimer=setTimeout(()=>{
+                  h264RetryTimer=null;
+                  if(generation!==streamGeneration)return;
+                  restartStreams(nativeFullscreen,true);
+                },delay);
+                return;
+              }
+              startMJPEG(generation);
             }
             function playAudio(v){
               if(!audioContext||audioContext.state!=='running'||v.length<24||v[0]!==1)return;
@@ -1010,8 +1081,23 @@ private final class BrowserHTTPClient {
             };
             document.addEventListener('fullscreenchange',fullscreenChanged);
             document.addEventListener('webkitfullscreenchange',fullscreenChanged);
-            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{nativeFullscreen=true;fullscreenLocked=true;showLockIndicator();expand.hidden=true;if(!streamsActive)startStreams();resumeNativePlayback(true,true)});
-            nativeVideo.addEventListener('webkitendfullscreen',()=>{nativeFullscreen=false;fullscreenLocked=false;if(nativeResumeTimer){clearTimeout(nativeResumeTimer);nativeResumeTimer=null}hideLockIndicator();updateExpandButton();needsRedraw=true;resize();startStreams()});
+            nativeVideo.addEventListener('webkitbeginfullscreen',()=>{
+              nativeFullscreen=true;nativeFullscreenEpoch++;fullscreenLocked=true;
+              if(nativeExitRecoveryTimer){clearTimeout(nativeExitRecoveryTimer);nativeExitRecoveryTimer=null}
+              showLockIndicator();expand.hidden=true;if(!streamsActive)startStreams();resumeNativePlayback(true,true);
+            });
+            nativeVideo.addEventListener('webkitendfullscreen',()=>{
+              nativeFullscreen=false;nativeFullscreenEpoch++;fullscreenLocked=false;
+              if(nativeExitRecoveryTimer){clearTimeout(nativeExitRecoveryTimer);nativeExitRecoveryTimer=null}
+              if(nativeResumeTimer){clearTimeout(nativeResumeTimer);nativeResumeTimer=null}
+              hideLockIndicator();updateExpandButton();needsRedraw=true;resize();
+              // AVKit can leave both its capture track and the page canvas in a
+              // detached compositor after backgrounding. Build a completely
+              // fresh inline surface before reconnecting instead of trusting
+              // the logically-playing but dead MediaStream.
+              rebuildNativeMedia(true);
+              recoverForeground(true,true,false,false);
+            });
             nativeVideo.addEventListener('playing',()=>{nativeResumeAttempt=0});
             nativeVideo.addEventListener('pause',()=>{
               if(nativeFullscreen&&!document.hidden)resumeNativePlayback(false);
@@ -1019,6 +1105,8 @@ private final class BrowserHTTPClient {
             const releaseStreams=()=>{
               streamsActive=false;streamGeneration++;
               audioEnabled=false;
+              if(h264RetryTimer){clearTimeout(h264RetryTimer);h264RetryTimer=null}
+              if(mjpegRetryTimer){clearTimeout(mjpegRetryTimer);mjpegRetryTimer=null}
               if(h264Abort)h264Abort.abort();
               if(audioAbort)audioAbort.abort();
               fallback.removeAttribute('src');
@@ -1040,22 +1128,111 @@ private final class BrowserHTTPClient {
               }
               if('VideoDecoder' in window&&'EncodedVideoChunk' in window){
                 startH264(generation).catch(()=>{
-                  if(generation===streamGeneration)startMJPEG(generation);
+                  if(generation===streamGeneration)handleH264Failure(generation);
                 });
               }else{
                 startMJPEG(generation);
               }
             };
-            const restartStreams=()=>{
-              if(document.hidden)return;
+            const restartStreams=(allowHidden=false,force=false)=>{
+              if(document.hidden&&!allowHidden)return false;
               const now=performance.now();
-              if(now-lastRestartAt<500)return;
+              if(!force&&now-lastRestartAt<500)return false;
               lastRestartAt=now;
-              if(streamsActive)releaseStreams();
+              releaseStreams();
               startStreams();
+              return true;
+            };
+            function hardRecoverPage(){
+              let lastReload=0;
+              try{lastReload=Number(sessionStorage.getItem(reloadMarker)||0)}catch(_){}
+              if(Date.now()-lastReload<15000)return;
+              try{sessionStorage.setItem(reloadMarker,String(Date.now()))}catch(_){}
+              location.replace(location.href);
+            }
+            function nativePresentedFrames(){
+              try{
+                const values=[];
+                if(typeof nativeVideo.getVideoPlaybackQuality==='function'){
+                  const quality=nativeVideo.getVideoPlaybackQuality();
+                  if(quality&&Number.isFinite(quality.totalVideoFrames))values.push(quality.totalVideoFrames);
+                }
+                const legacy=Number(nativeVideo.webkitDecodedFrameCount);
+                if(Number.isFinite(legacy))values.push(legacy);
+                if(!values.length)return -1;
+                const value=Math.max(...values);
+                if(nativeCounterLast>=0&&value>nativeCounterLast)nativeCounterTrusted=true;
+                nativeCounterLast=value;
+                return value;
+              }catch(_){}
+              return -1;
+            }
+            function cancelForegroundRecovery(){
+              foregroundRecoveryToken++;
+              if(recoveryWatchdog){clearTimeout(recoveryWatchdog);recoveryWatchdog=null}
+            }
+            function exitBrokenNativeFullscreen(){
+              if(!nativeFullscreen){if(!document.hidden)hardRecoverPage();return}
+              const epoch=nativeFullscreenEpoch;
+              exitImmersive();
+              if(nativeExitRecoveryTimer)clearTimeout(nativeExitRecoveryTimer);
+              nativeExitRecoveryTimer=setTimeout(()=>{
+                nativeExitRecoveryTimer=null;
+                if(nativeFullscreen&&nativeFullscreenEpoch===epoch)hardRecoverPage();
+              },1800);
+            }
+            function watchForegroundRecovery(refreshNative){
+              cancelForegroundRecovery();
+              const token=foregroundRecoveryToken;
+              const decodedBaseline=decodedFrameSequence,fallbackBaseline=fallbackFrameSequence,nativeBaseline=nativePresentedFrames(),nativeTimeBaseline=nativeVideo.currentTime||0;
+              recoveryWatchdog=setTimeout(()=>{
+                if(token!==foregroundRecoveryToken)return;
+                const firstProgress=decodedFrameSequence>decodedBaseline
+                  ||fallbackFrameSequence>fallbackBaseline
+                  ||(usingFallback&&fallback.naturalWidth>0);
+                if(!firstProgress)restartStreams(true,true);
+                const decodedAfterRestart=decodedFrameSequence,fallbackAfterRestart=fallbackFrameSequence;
+                recoveryWatchdog=setTimeout(()=>{
+                  if(token!==foregroundRecoveryToken)return;
+                  const transportLive=decodedFrameSequence>decodedAfterRestart
+                    ||fallbackFrameSequence>fallbackAfterRestart
+                    ||(usingFallback&&fallback.naturalWidth>0);
+                  if(!transportLive){
+                    if(nativeFullscreen)exitBrokenNativeFullscreen();
+                    else if(!document.hidden)hardRecoverPage();
+                    return;
+                  }
+                  const nativeNow=nativePresentedFrames();
+                  const decodedProgress=decodedFrameSequence-decodedBaseline;
+                  if(refreshNative&&nativeFullscreen&&decodedProgress>=12
+                    &&nativeCounterTrusted&&nativeBaseline>=0&&nativeNow>=0&&nativeNow-nativeBaseline<2
+                    &&!nativeVideo.paused&&(nativeVideo.currentTime||0)-nativeTimeBaseline>.5){
+                    // Fullscreen AVKit is stale even though WebCodecs is feeding
+                    // the canvas. Exit it programmatically, then the end event
+                    // rebuilds the capture graph safely outside fullscreen.
+                    exitBrokenNativeFullscreen();
+                  }
+                },3800);
+              },1800);
+            }
+            function recoverForeground(allowHidden=false,force=false,refreshNative=nativeFullscreen,coalesce=true){
+              quietReconnect=true;status.style.display='none';
+              const now=performance.now();
+              if(coalesce&&streamsActive&&now-lastForegroundRecoveryAt<800){
+                backgrounded=false;resumeNativePlayback(true,allowHidden);return true;
+              }
+              rebuildLiveCanvas();
+              if(!restartStreams(allowHidden,force))return false;
+              lastForegroundRecoveryAt=now;
+              backgrounded=false;
+              resumeNativePlayback(true,allowHidden);
+              watchForegroundRecovery(refreshNative);
+              return true;
             };
             document.addEventListener('visibilitychange',()=>{
               if(document.hidden){
+                cancelForegroundRecovery();
+                lastForegroundRecoveryAt=-10000;
                 backgrounded=true;
                 quietReconnect=true;
                 // DOM fullscreen remains reported as active when the Safari
@@ -1066,22 +1243,27 @@ private final class BrowserHTTPClient {
                 // while the player is still visibly active.
                 if(!nativeFullscreen)releaseStreams();
               }else if(backgrounded){
-                backgrounded=false;rebuildLiveCanvas();restartStreams();resumeNativePlayback(true);
+                recoverForeground(false,true,nativeFullscreen);
               }else{
                 startStreams();resumeNativePlayback(false);
               }
             });
             addEventListener('pagehide',()=>{
+              cancelForegroundRecovery();
+              lastForegroundRecoveryAt=-10000;
               backgrounded=true;
               quietReconnect=true;
               if(!nativeFullscreen)releaseStreams();
             });
             addEventListener('pageshow',event=>{
-              if(event.persisted||backgrounded||!streamsActive){backgrounded=false;quietReconnect=true;rebuildLiveCanvas();restartStreams()}
-              resumeNativePlayback(true,true);
+              if(event.persisted||backgrounded||!streamsActive)recoverForeground(nativeFullscreen,true,nativeFullscreen);
+              else resumeNativePlayback(true,true);
             });
-            addEventListener('focus',()=>{if(backgrounded){backgrounded=false;quietReconnect=true;rebuildLiveCanvas();restartStreams()}resumeNativePlayback(true,true)});
-            addEventListener('online',restartStreams);
+            addEventListener('focus',()=>{
+              if(nativeFullscreen||backgrounded||!streamsActive)recoverForeground(nativeFullscreen,true,nativeFullscreen);
+              else resumeNativePlayback(true,true);
+            });
+            addEventListener('online',()=>recoverForeground(nativeFullscreen,true,nativeFullscreen));
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             startStreams();
           </script>

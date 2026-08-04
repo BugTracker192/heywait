@@ -323,7 +323,7 @@ final class WireProtocolTests: XCTestCase {
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
         XCTAssertEqual(
             AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v16"
+            "dev.screenshare.sender.broadcast.v17"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",

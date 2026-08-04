@@ -137,7 +137,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
                        let browserH264Encoder {
                         browserH264Encoder.encode(sampleBuffer, orientation: orientation)
                     }
-                } else if browserServer.hasMJPEGClients, let browserEncoder {
+                }
+                if browserServer.hasMJPEGClients, let browserEncoder {
                     browserEncoder.encode(sampleBuffer, orientation: orientation)
                 }
             }
