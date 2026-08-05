@@ -97,7 +97,14 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "${receiver_info}")" = 'false'
           test -x "${broadcast_app}/ScreenShareBroadcast"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${broadcast_info}")" = 'com.apple.broadcast-services-upload'
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${broadcast_info}")" = 'dev.screenshare.sender.broadcast.v20'
+          # Derive the expected identity from AppConstants instead of repeating it
+          # here. The sender looks the extension up by that constant, so the two
+          # disagreeing means the broadcast picker cannot find the extension at
+          # all. Hardcoding it in this file let the two drift silently.
+          expected_broadcast_id="$(sed -n 's/.*broadcastBundleIdentifier = "\(.*\)".*/\1/p' Sources/Shared/AppConstants.swift)"
+          echo "AppConstants declares broadcast identity: ${expected_broadcast_id}"
+          test -n "${expected_broadcast_id}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${broadcast_info}")" = "${expected_broadcast_id}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionAttributes:RPBroadcastProcessMode' "${broadcast_info}")" = 'RPBroadcastProcessModeSampleBuffer'
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' build/embedded-entitlements/sender.plist)" = 'group.dev.screenshare.sender'
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' build/embedded-entitlements/broadcast.plist)" = 'group.dev.screenshare.sender'
