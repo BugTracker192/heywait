@@ -61,7 +61,7 @@ targets:
       - path: Sources/BroadcastExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.screenshare.sender.broadcast.v19
+        PRODUCT_BUNDLE_IDENTIFIER: dev.screenshare.sender.broadcast.v20
         PRODUCT_NAME: ScreenShareBroadcast
         INFOPLIST_KEY_CFBundleDisplayName: Screen Share
         CODE_SIGN_ENTITLEMENTS: Config/Broadcast.entitlements

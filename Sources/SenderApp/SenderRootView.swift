@@ -427,6 +427,12 @@ struct SenderRootView: View {
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
             }
+            if let videoDiagnostic {
+                Text(videoDiagnostic)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+            }
             if let audioDiagnostic {
                 Text(audioDiagnostic)
                     .font(.caption2.monospaced())
@@ -527,6 +533,11 @@ struct SenderRootView: View {
     private var audioDiagnostic: String? {
         UserDefaults(suiteName: AppConstants.appGroup)?
             .string(forKey: AppConstants.audioDiagnosticKey)
+    }
+
+    private var videoDiagnostic: String? {
+        UserDefaults(suiteName: AppConstants.appGroup)?
+            .string(forKey: AppConstants.videoDiagnosticKey)
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {

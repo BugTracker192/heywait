@@ -13,12 +13,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var lastOrientation: UInt32 = 1
     private var lastOrientationDiagnostic = ""
     private var lastAudioDiagnostic = ""
+    private var lastVideoDiagnostic = ""
+    private var quality: StreamQuality = .balanced
     private var orientationMode: StreamOrientationMode = .landscape
     private var rotationDirection: StreamRotationDirection = .left
     private var isFinishing = false
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         let configuration = SenderConfigurationStore.shared.load()
+        quality = configuration.quality
         orientationMode = configuration.orientationMode
         rotationDirection = configuration.rotationDirection
         guard configuration.deliveryMode == .browser || configuration.isReady else {
@@ -137,6 +140,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
             }
             guard sampleBufferType == .video else { return }
 
+            recordVideoDiagnostic(for: sampleBuffer)
+
             let orientation = videoOrientation(from: sampleBuffer)
             let orientationChanged = orientation != lastOrientation
             if orientationChanged {
@@ -162,6 +167,48 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 encoder?.encode(sampleBuffer, orientation: orientation)
             }
         }
+    }
+
+    private func recordVideoDiagnostic(for sampleBuffer: CMSampleBuffer) {
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let sourceWidth = Int32(CVPixelBufferGetWidth(imageBuffer))
+        let sourceHeight = Int32(CVPixelBufferGetHeight(imageBuffer))
+        guard sourceWidth > 0, sourceHeight > 0 else { return }
+
+        let target = quality.encodedDimensions(
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight
+        )
+        let megabits = Double(
+            quality.bitRate(width: target.width, height: target.height)
+        ) / 1_000_000
+
+        // Which transport the viewer actually negotiated. The MJPEG fallback is
+        // bounded by browserMaximumDimension rather than the H.264 short-edge
+        // bound, so a silent fall back looks exactly like no improvement at all.
+        let viewer: String
+        if let browserServer {
+            if browserServer.hasH264Clients {
+                viewer = "h264"
+            } else if browserServer.hasMJPEGClients {
+                viewer = "mjpeg"
+            } else {
+                viewer = "none"
+            }
+        } else {
+            viewer = "off"
+        }
+
+        let diagnostic = "encode \(sourceWidth)x\(sourceHeight)"
+            + " -> \(target.width)x\(target.height)"
+            + " @ \(String(format: "%.1f", megabits))Mbps"
+            + " \(quality.rawValue) · viewer \(viewer)"
+        guard diagnostic != lastVideoDiagnostic else { return }
+        lastVideoDiagnostic = diagnostic
+        UserDefaults(suiteName: AppConstants.appGroup)?.set(
+            diagnostic,
+            forKey: AppConstants.videoDiagnosticKey
+        )
     }
 
     private func recordAudioDiagnostic(
