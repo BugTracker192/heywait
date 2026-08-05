@@ -457,25 +457,50 @@ final class WireProtocolTests: XCTestCase {
     }
 
     func testRaisedBitRateCeilingsDoNotStarveTheNewResolutions() {
-        // A resolution increase is worthless if the ceiling clamps it: the old
-        // 8 Mbps cap over 1080x2336 at 60 Hz is 0.05 bits per pixel, which looks
-        // worse than the lower resolution it replaced. Assert each quality's
-        // pixel-derived request survives its own ceiling unclamped.
-        for quality in [StreamQuality.dataSaver, .balanced, .sharp, .ultra] {
-            let dimensions = quality.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
+        // The property that matters is the effective bits-per-pixel budget, not
+        // whether the ceiling engages. A 0.05 bpp stream — what the old 8 Mbps cap
+        // produced over 1080x2336 at 60 Hz — looks worse than the lower resolution
+        // it replaced. Clamping a hypothetically huge source down to a still-ample
+        // budget is fine; falling under the floor is not.
+        for source in [(width: Int32(888), height: Int32(1920)),
+                       (width: Int32(1170), height: Int32(2532))] {
+            for quality in [StreamQuality.dataSaver, .balanced, .sharp, .ultra] {
+                let dimensions = quality.encodedDimensions(
+                    sourceWidth: source.width,
+                    sourceHeight: source.height
+                )
+                let rate = quality.bitRate(width: dimensions.width, height: dimensions.height)
+                let bitsPerPixel = Double(rate)
+                    / (Double(dimensions.width) * Double(dimensions.height) * Double(quality.framesPerSecond))
+                XCTAssertGreaterThan(
+                    bitsPerPixel,
+                    0.08,
+                    "\(quality.rawValue) at \(source.width)x\(source.height) falls below a usable budget"
+                )
+                XCTAssertLessThanOrEqual(rate, quality.maximumBitRate)
+            }
+        }
+    }
+
+    func testReplayKitSourceIsPassedThroughUnscaledAndUnclamped() {
+        // ReplayKit delivers a downscaled buffer to a broadcast extension: 888x1920
+        // on the target device, not its 1170x2532 panel. That is the real ceiling,
+        // so Sharp and Ultra must pass it through untouched — never upscaled, and
+        // never clamped down to a lower bit rate than the pixels deserve.
+        for quality in [StreamQuality.sharp, .ultra] {
+            let dimensions = quality.encodedDimensions(sourceWidth: 888, sourceHeight: 1920)
+            XCTAssertEqual(dimensions.width, 888, "\(quality.rawValue) rescaled the source")
+            XCTAssertEqual(dimensions.height, 1920, "\(quality.rawValue) rescaled the source")
+
             let rate = quality.bitRate(width: dimensions.width, height: dimensions.height)
             XCTAssertLessThan(
                 rate,
                 quality.maximumBitRate,
-                "\(quality.rawValue) is clamped by its ceiling and will look blocky"
+                "\(quality.rawValue) is clamped at the real ReplayKit source size"
             )
             let bitsPerPixel = Double(rate)
-                / (Double(dimensions.width) * Double(dimensions.height) * Double(quality.framesPerSecond))
-            XCTAssertGreaterThan(
-                bitsPerPixel,
-                0.08,
-                "\(quality.rawValue) falls below a usable bits-per-pixel budget"
-            )
+                / (888.0 * 1920.0 * Double(quality.framesPerSecond))
+            XCTAssertGreaterThan(bitsPerPixel, 0.18, "\(quality.rawValue) budget is too low to look sharp")
         }
     }
 
@@ -498,9 +523,9 @@ final class WireProtocolTests: XCTestCase {
             StreamQuality.ultra.bitRate(width: 1_440, height: 1_080),
             StreamQuality.sharp.bitRate(width: 1_080, height: 810)
         )
-        // 1440x1080 at 60 Hz and 0.16 bits per pixel is ~14.9 Mbps, which now
-        // sits under Ultra's ceiling instead of being clamped to it.
-        XCTAssertEqual(StreamQuality.ultra.bitRate(width: 1_440, height: 1_080), 14_929_920)
+        // 1440x1080 at 60 Hz and 0.26 bits per pixel is ~24.3 Mbps, still under
+        // Ultra's ceiling rather than clamped to it.
+        XCTAssertEqual(StreamQuality.ultra.bitRate(width: 1_440, height: 1_080), 24_261_120)
         XCTAssertEqual(StreamQuality.ultra.maximumBitRate, 32_000_000)
     }
 

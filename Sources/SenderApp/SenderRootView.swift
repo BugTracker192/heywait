@@ -339,13 +339,13 @@ struct SenderRootView: View {
     private var qualityDescription: String {
         switch model.quality {
         case .ultra:
-            return "Native resolution, 60 FPS hardware H.264 up to 32 Mbps. Sharpest picture; needs strong 5 GHz Wi-Fi and runs hotter."
+            return "Up to 1440 lines at the highest bit rate, 60 FPS, up to 32 Mbps. iOS decides how large a frame it hands over, so this is usually the full captured frame — see the encode line below."
         case .sharp:
-            return "1080 lines, 60 FPS hardware H.264 up to 24 Mbps. Recommended balance of sharpness and stability."
+            return "Up to 1080 lines, 60 FPS, up to 24 Mbps. Recommended: same picture as Ultra on most phones at a lower bit rate."
         case .balanced:
-            return "720 lines, 60 FPS hardware H.264 up to 12 Mbps. Lower heat and more tolerant of weaker Wi-Fi."
+            return "Up to 720 lines, 60 FPS, up to 12 Mbps. Lower heat and more tolerant of weaker Wi-Fi."
         case .dataSaver:
-            return "480 lines, 60 FPS up to 6 Mbps for the smoothest delivery on poor networks."
+            return "Up to 480 lines, 60 FPS, up to 6 Mbps for the smoothest delivery on poor networks."
         }
     }
 

@@ -191,11 +191,17 @@ enum StreamQuality: String, CaseIterable, Codable {
 
     func bitRate(width: Int32, height: Int32) -> Int {
         let pixels = max(1, Int(width) * Int(height))
+        // ReplayKit hands a broadcast extension a downscaled buffer — measured at
+        // 888x1920 on the target device, not the 1170x2532 panel — and there is no
+        // API to ask for more. Resolution is therefore already at its ceiling once
+        // the short-edge bound passes the source through untouched, so bits per
+        // pixel is the only quality lever left. These are raised accordingly;
+        // `maximumBitRate` still clamps unusually large sources.
         let bitsPerPixel: Double
         switch self {
-        case .balanced: bitsPerPixel = 0.10
-        case .sharp: bitsPerPixel = 0.14
-        case .ultra: bitsPerPixel = 0.16
+        case .balanced: bitsPerPixel = 0.12
+        case .sharp: bitsPerPixel = 0.20
+        case .ultra: bitsPerPixel = 0.26
         case .dataSaver: bitsPerPixel = 0.09
         }
         return min(
