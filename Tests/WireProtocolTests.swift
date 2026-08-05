@@ -547,9 +547,20 @@ final class WireProtocolTests: XCTestCase {
     }
 
     func testBrowserLinkUsesFixedLocalPortAndNormalizedPrivateKey() throws {
-        XCTAssertEqual(
-            AppConstants.broadcastBundleIdentifier,
-            "dev.screenshare.sender.broadcast.v19"
+        // Assert the shape, not the exact version. The identity is bumped on
+        // purpose whenever the extension binary changes, so pinning the literal
+        // only guaranteed this test failed on every deliberate bump. The check
+        // that actually matters — that the built .appex Info.plist agrees with
+        // this constant — lives in the CI workflow.
+        let identity = AppConstants.broadcastBundleIdentifier
+        let identityPrefix = "dev.screenshare.sender.broadcast.v"
+        XCTAssertTrue(
+            identity.hasPrefix(identityPrefix),
+            "unexpected broadcast identity: \(identity)"
+        )
+        XCTAssertNotNil(
+            Int(identity.dropFirst(identityPrefix.count)),
+            "the broadcast identity must end in a numeric version: \(identity)"
         )
         let url = LocalBrowserLink.url(
             host: "192.168.1.23",
