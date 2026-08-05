@@ -9,6 +9,12 @@ enum AppConstants {
     // keep launching a cached upload extension from an older installation.
     static let broadcastBundleIdentifier = "dev.screenshare.sender.broadcast.v19"
     static let orientationDiagnosticKey = "lastReplayKitOrientationDiagnostic"
+    // Application audio can stop mid-broadcast when another app changes the
+    // system audio session — joining a call, for example. The capture path
+    // rejects an unexpected format silently, so record the last format seen and
+    // whether it was accepted; otherwise the only symptom is missing audio with
+    // nothing to diagnose it from.
+    static let audioDiagnosticKey = "lastCapturedAudioDiagnostic"
     static let maximumPacketBytes = 8 * 1024 * 1024
     static let maximumAudioFrameBytes = 512 * 1024
     static let maximumPendingAudioFrames = 10

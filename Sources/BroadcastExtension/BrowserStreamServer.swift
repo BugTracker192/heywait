@@ -613,7 +613,7 @@ private final class BrowserHTTPClient {
             let audioContext=AudioContextClass?new AudioContextClass({latencyHint:'interactive'}):null;
             let audioDestination=audioContext?audioContext.createMediaStreamDestination():null;
             let canvasStream=null,nativeStream=null,nativeFullscreen=false,stageFullscreenPending=false,fullscreenLocked=false,lockHideTimer=null,cornerHoldTimer=null,nativeResumeTimer=null,nativeResumeAttempt=0;
-            let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,audioAbort=null,audioFramesReceived=0,backgroundAudioMuted=false;
+            let audioUnlocked=false,audioEnabled=false,audioLoopGeneration=0,audioAt=0,micAt=0,audioAbort=null,audioFramesReceived=0,backgroundAudioMuted=false;
             let viewScale=1,pinchStartDistance=0,pinchStartScale=1,backgrounded=false,lastRestartAt=0,lastCanvasRebuildAt=0,quietReconnect=false,refitOnNextFrame=true;
             let decodedFrameSequence=0,fallbackFrameSequence=0,foregroundRecoveryToken=0,recoveryWatchdog=null,h264RetryTimer=null,mjpegRetryTimer=null,h264RetryCount=0,stableH264Frames=0,nativeMediaRebuilding=false,lastForegroundRecoveryAt=-10000;
             let nativeExitRecoveryTimer=null,nativeFullscreenEpoch=0,nativeCounterLast=-1,nativeCounterTrusted=false,sourceOrientationLock='';
@@ -1047,7 +1047,7 @@ private final class BrowserHTTPClient {
             }
             function playAudio(v){
               if(backgroundAudioMuted||document.hidden||!audioContext||audioContext.state!=='running'||v.length<24||v[0]!==1)return;
-              const format=v[1],interleaved=(v[2]&1)===1,channels=v[3],rate=u32(v,4),frames=u32(v,8),length=u32(v,20);
+              const format=v[1],interleaved=(v[2]&1)===1,microphone=(v[2]&2)===2,channels=v[3],rate=u32(v,4),frames=u32(v,8),length=u32(v,20);
               const bytes=format===2?2:4;
               if(channels<1||channels>2||rate<8000||rate>192000||!frames||length!==frames*channels*bytes||v.length!==24+length)return;
               const output=audioContext.createBuffer(channels,frames,rate);
@@ -1061,7 +1061,12 @@ private final class BrowserHTTPClient {
                 }
               }
               const now=audioContext.currentTime;
-              if(audioAt<now+.025||audioAt>now+.30)audioAt=now+.055;
+              // App audio and microphone audio are separate ReplayKit streams
+              // with independent clocks and packet cadence. They must schedule
+              // against their own cursors, otherwise each source pushes the
+              // other later and they play in sequence instead of mixing.
+              let at=microphone?micAt:audioAt;
+              if(at<now+.025||at>now+.30)at=now+.055;
               const source=audioContext.createBufferSource();
               source.buffer=output;
               // Element fullscreen keeps the page's Web Audio graph live, so
@@ -1070,9 +1075,10 @@ private final class BrowserHTTPClient {
               // MediaStream destination.
               if(stageFullscreenRequest||!audioDestination)source.connect(audioContext.destination);
               if(audioDestination)source.connect(audioDestination);
-              source.start(audioAt);
+              source.start(at);
               audioFramesReceived++;
-              audioAt+=frames/rate;
+              at+=frames/rate;
+              if(microphone)micAt=at;else audioAt=at;
             }
             async function runAudio(generation){
               if(backgroundAudioMuted||document.hidden||audioLoopGeneration===generation)return;audioLoopGeneration=generation;
@@ -1102,6 +1108,7 @@ private final class BrowserHTTPClient {
               backgroundAudioMuted=true;
               audioEnabled=false;
               audioAt=0;
+              micAt=0;
               if(audioAbort){audioAbort.abort();audioAbort=null}
               nativeVideo.muted=true;
               nativeVideo.volume=0;
@@ -1119,6 +1126,32 @@ private final class BrowserHTTPClient {
                 audioEnabled=true;
                 runAudio(streamGeneration);
               }).catch(()=>{});
+            }
+            // Another app taking an audio session (a voice call, Discord, any
+            // recording app) makes WebKit suspend or interrupt this AudioContext.
+            // Nothing used to notice: playAudio requires state 'running' and
+            // every resume() call was tied to a user gesture or a visibility,
+            // focus, pageshow or online event, none of which fire on an audio
+            // interruption. Audio therefore stayed dead until the page was
+            // reloaded. Reconcile the intended state instead of trusting events.
+            function ensureAudioRunning(){
+              if(!audioContext||!audioUnlocked||backgroundAudioMuted||document.hidden||!streamsActive)return;
+              if(audioContext.state!=='running'){
+                audioContext.resume().then(()=>{
+                  if(backgroundAudioMuted||document.hidden||!streamsActive)return;
+                  if(!audioAbort||audioAbort.signal.aborted)audioAbort=new AbortController();
+                  audioEnabled=true;
+                  runAudio(streamGeneration);
+                }).catch(()=>{});
+                return;
+              }
+              // The context recovered but the reader loop may have unwound while
+              // it was interrupted. audioLoopGeneration is 0 when none is live.
+              if(!audioEnabled||!audioLoopGeneration){
+                if(!audioAbort||audioAbort.signal.aborted)audioAbort=new AbortController();
+                audioEnabled=true;
+                runAudio(streamGeneration);
+              }
             }
             stage.addEventListener('click',event=>{
               if(fullscreenLocked||fullscreenActive()){
@@ -1331,12 +1364,16 @@ private final class BrowserHTTPClient {
                 lastForegroundRecoveryAt=-10000;
                 backgrounded=true;
                 quietReconnect=true;
-                // DOM fullscreen and installed web apps remain live video
-                // viewers, but their game audio must never leak over the iOS
-                // Home Screen. Legacy AVKit can report the page hidden while
-                // it is still visibly fullscreen, so pagehide handles that
-                // path without muting legitimate visible playback.
-                if(!nativeFullscreen)silenceBackgroundAudio();
+                // Game audio must never leak over the iOS Home Screen. This used
+                // to be skipped while nativeFullscreen was set, on the premise
+                // that legacy AVKit reports the page hidden while it is still
+                // visibly fullscreen. Safari 17.2 fixed that visibility bug, so
+                // on current iOS a hidden document means the page really did
+                // lose visibility — the user backgrounded Safari while the
+                // player happened to be fullscreen. Treating those as the same
+                // state is what let audio keep playing on the Home Screen.
+                // restoreForegroundAudio() brings it straight back on return.
+                silenceBackgroundAudio();
                 // DOM fullscreen remains reported as active when the Safari
                 // app itself is backgrounded, but its fetch/decoder work is
                 // suspended. Release it so foregrounding creates fresh HTTP
@@ -1370,6 +1407,11 @@ private final class BrowserHTTPClient {
               restoreForegroundAudio();
             });
             addEventListener('online',()=>{recoverForeground(nativeFullscreen,true,nativeFullscreen);restoreForegroundAudio()});
+            // WebKit reports interruption and recovery here, so react directly
+            // rather than waiting for an unrelated lifecycle event. The interval
+            // is the backstop for interruptions that never emit a statechange.
+            if(audioContext)audioContext.addEventListener('statechange',ensureAudioRunning);
+            setInterval(ensureAudioRunning,2000);
             if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(()=>{});
             startStreams();
           </script>

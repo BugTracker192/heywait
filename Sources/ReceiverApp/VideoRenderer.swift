@@ -166,6 +166,18 @@ final class H264DisplayDecoder {
     func configure(_ configuration: VideoConfiguration) {
         guard configuration != currentConfiguration else { return }
 
+        // A rotation re-sends the parameter sets with a new orientation, and the
+        // sender forces a key frame with it. Rebuilding the format description
+        // for that would call flushAndRemoveImage() below and blank the screen on
+        // every rotation. Orientation is only a layer transform, so apply it
+        // directly and leave the decoder and the on-screen image alone.
+        if let currentConfiguration,
+           currentConfiguration.describesSameDecoderState(as: configuration) {
+            self.currentConfiguration = configuration
+            renderer.setOrientation(configuration.orientation)
+            return
+        }
+
         var newFormatDescription: CMVideoFormatDescription?
         let status: OSStatus = configuration.sps.withUnsafeBytes { spsBytes in
             configuration.pps.withUnsafeBytes { ppsBytes in

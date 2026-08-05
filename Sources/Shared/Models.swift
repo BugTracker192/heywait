@@ -48,6 +48,20 @@ struct VideoConfiguration: Codable, Equatable {
         }
         return nominalFrameRate
     }
+
+    // True when two configurations describe the same decoder setup. Orientation
+    // travels in this payload but is a presentation property, not a decoder one:
+    // it is applied as a layer transform. The browser viewer already draws this
+    // line with its `decoderSignature`; comparing whole configurations instead
+    // made every rotation rebuild the format description and blank the picture.
+    func describesSameDecoderState(as other: VideoConfiguration) -> Bool {
+        width == other.width
+            && height == other.height
+            && sps == other.sps
+            && pps == other.pps
+            && effectiveNALUnitHeaderLength == other.effectiveNALUnitHeaderLength
+            && effectiveFrameRate == other.effectiveFrameRate
+    }
 }
 
 struct StreamErrorPayload: Codable, Equatable {
@@ -90,6 +104,10 @@ enum StreamQuality: String, CaseIterable, Codable {
         }
     }
 
+    // Deliberately bounds the LONGER edge, unlike `maximumEncodedShortEdge`.
+    // The MJPEG fallback sends whole intra-coded frames, so matching the H.264
+    // short-edge bound would cost roughly 100 Mbps at 30 FPS. Keep this path
+    // small: it only runs on iOS below 16.4 or when a decoder genuinely fails.
     var browserMaximumDimension: CGFloat {
         switch self {
         case .balanced: return 960
@@ -108,12 +126,20 @@ enum StreamQuality: String, CaseIterable, Codable {
         }
     }
 
-    var maximumEncodedDimension: Int32 {
+    // Bound on the SHORTER edge of the encoded frame.
+    //
+    // This previously bounded the longer edge, which made every label wrong.
+    // ReplayKit delivers a portrait-shaped buffer (1170x2532 on a 6.1" phone),
+    // so a 1080 long-edge cap scaled it to 498x1080 — a stream carrying 498
+    // lines across the width of a landscape viewer. Bounding the shorter edge
+    // makes the number describe the actual line count, and sources already at
+    // or below the bound pass through untouched rather than being upscaled.
+    var maximumEncodedShortEdge: Int32 {
         switch self {
-        case .balanced: return 960
+        case .balanced: return 720
         case .sharp: return 1_080
         case .ultra: return 1_440
-        case .dataSaver: return 540
+        case .dataSaver: return 480
         }
     }
 
@@ -122,28 +148,45 @@ enum StreamQuality: String, CaseIterable, Codable {
             return CMVideoDimensions(width: 0, height: 0)
         }
 
-        let longestSide = max(sourceWidth, sourceHeight)
-        guard longestSide > maximumEncodedDimension else {
+        let bound = maximumEncodedShortEdge
+        let shortestSide = min(sourceWidth, sourceHeight)
+        guard shortestSide > bound else {
             return CMVideoDimensions(
                 width: evenDimension(sourceWidth),
                 height: evenDimension(sourceHeight)
             )
         }
 
-        if sourceWidth >= sourceHeight {
+        if sourceWidth <= sourceHeight {
             return CMVideoDimensions(
-                width: maximumEncodedDimension,
+                width: bound,
                 height: evenDimension(
-                    Int32(Int64(sourceHeight) * Int64(maximumEncodedDimension) / Int64(sourceWidth))
+                    Int32(Int64(sourceHeight) * Int64(bound) / Int64(sourceWidth))
                 )
             )
         }
         return CMVideoDimensions(
             width: evenDimension(
-                Int32(Int64(sourceWidth) * Int64(maximumEncodedDimension) / Int64(sourceHeight))
+                Int32(Int64(sourceWidth) * Int64(bound) / Int64(sourceHeight))
             ),
-            height: maximumEncodedDimension
+            height: bound
         )
+    }
+
+    // Ceiling for the encoded bit rate.
+    //
+    // These must scale with `maximumEncodedShortEdge`. The previous 8 Mbps cap
+    // was ample for a 498x1080 stream but starves a 1080x2336 one: 8 Mbps over
+    // 2.5 megapixels at 60 Hz is 0.05 bits per pixel, which reads as blocking
+    // and smearing rather than detail. Raising resolution without raising this
+    // ceiling makes the picture worse, not better.
+    var maximumBitRate: Int {
+        switch self {
+        case .balanced: return 12_000_000
+        case .sharp: return 24_000_000
+        case .ultra: return 32_000_000
+        case .dataSaver: return 6_000_000
+        }
     }
 
     func bitRate(width: Int32, height: Int32) -> Int {
@@ -155,8 +198,10 @@ enum StreamQuality: String, CaseIterable, Codable {
         case .ultra: bitsPerPixel = 0.16
         case .dataSaver: bitsPerPixel = 0.09
         }
-        let ceiling = self == .ultra ? 12_000_000 : 8_000_000
-        return min(ceiling, max(800_000, Int(Double(pixels) * Double(framesPerSecond) * bitsPerPixel)))
+        return min(
+            maximumBitRate,
+            max(800_000, Int(Double(pixels) * Double(framesPerSecond) * bitsPerPixel))
+        )
     }
 
     private func evenDimension(_ value: Int32) -> Int32 {

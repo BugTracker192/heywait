@@ -7,18 +7,30 @@ final class AudioPlaybackEngine {
         let sampleRate: UInt32
     }
 
+    // App audio and microphone audio are independent ReplayKit streams and
+    // routinely differ in sample rate and channel count. One shared player node
+    // would reconfigure — and therefore tear down the whole engine — on every
+    // alternating frame, so each source gets its own node and its own format.
+    private final class Track {
+        let player = AVAudioPlayerNode()
+        var activeFormat: FormatKey?
+        var scheduledBufferCount = 0
+        var generation: UInt64 = 0
+    }
+
     private let queue = DispatchQueue(label: "dev.screenshare.receiver.audio", qos: .userInteractive)
     private let stateLock = NSLock()
     private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private var activeFormat: FormatKey?
-    private var scheduledBufferCount = 0
-    private var generation: UInt64 = 0
+    private let appTrack = Track()
+    private let microphoneTrack = Track()
     private var backgroundPlaybackActive = false
 
     init() {
-        engine.attach(player)
+        engine.attach(appTrack.player)
+        engine.attach(microphoneTrack.player)
     }
+
+    private var tracks: [Track] { [appTrack, microphoneTrack] }
 
     var isBackgroundPlaybackActive: Bool {
         stateLock.lock()
@@ -39,54 +51,76 @@ final class AudioPlaybackEngine {
     }
 
     private func enqueueInternal(_ frame: AudioPCMFrame) {
+        let track = frame.isMicrophone ? microphoneTrack : appTrack
         let key = FormatKey(
             channelCount: frame.channelCount,
             sampleRate: frame.sampleRate
         )
-        guard configureIfNeeded(for: key),
-              let format = makeFormat(for: key),
+        guard let format = makeFormat(for: key),
+              configureIfNeeded(track: track, key: key, format: format),
               let buffer = makeBuffer(from: frame, format: format) else {
             return
         }
 
-        if scheduledBufferCount >= AppConstants.maximumPendingAudioFrames {
-            generation &+= 1
-            scheduledBufferCount = 0
-            player.stop()
-            player.play()
+        if track.scheduledBufferCount >= AppConstants.maximumPendingAudioFrames {
+            track.generation &+= 1
+            track.scheduledBufferCount = 0
+            track.player.stop()
+            track.player.play()
         }
 
-        let scheduledGeneration = generation
-        scheduledBufferCount += 1
-        player.scheduleBuffer(buffer) { [weak self] in
-            self?.queue.async {
-                guard let self, self.generation == scheduledGeneration else { return }
-                self.scheduledBufferCount = max(0, self.scheduledBufferCount - 1)
+        let scheduledGeneration = track.generation
+        track.scheduledBufferCount += 1
+        track.player.scheduleBuffer(buffer) { [weak self] in
+            guard let self else { return }
+            self.queue.async {
+                guard track.generation == scheduledGeneration else { return }
+                track.scheduledBufferCount = max(0, track.scheduledBufferCount - 1)
             }
         }
     }
 
-    private func configureIfNeeded(for key: FormatKey) -> Bool {
-        if activeFormat == key, engine.isRunning {
-            if !player.isPlaying {
-                player.play()
+    private func configureIfNeeded(
+        track: Track,
+        key: FormatKey,
+        format: AVAudioFormat
+    ) -> Bool {
+        if track.activeFormat == key, engine.isRunning {
+            if !track.player.isPlaying {
+                track.player.play()
             }
             setBackgroundPlaybackActive(true)
             return true
         }
 
-        resetInternal(deactivateSession: false)
-        guard let format = makeFormat(for: key) else { return false }
-
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .moviePlayback)
             try session.setActive(true)
-            engine.connect(player, to: engine.mainMixerNode, format: format)
+
+            // Reconnecting requires stopping the engine, which discards buffers
+            // already scheduled on the other track too. Invalidate both counters
+            // so neither is left believing it still has audio queued.
+            if engine.isRunning {
+                engine.stop()
+            }
+            for other in tracks {
+                other.player.stop()
+                other.generation &+= 1
+                other.scheduledBufferCount = 0
+            }
+
+            engine.disconnectNodeOutput(track.player)
+            engine.connect(track.player, to: engine.mainMixerNode, format: format)
+            track.activeFormat = key
+
             engine.prepare()
             try engine.start()
-            player.play()
-            activeFormat = key
+
+            // Only this track's format changed; every configured track resumes.
+            for other in tracks where other.activeFormat != nil {
+                other.player.play()
+            }
             setBackgroundPlaybackActive(true)
             return true
         } catch {
@@ -158,13 +192,17 @@ final class AudioPlaybackEngine {
     }
 
     private func resetInternal(deactivateSession: Bool) {
-        generation &+= 1
-        scheduledBufferCount = 0
-        player.stop()
+        for track in tracks {
+            track.generation &+= 1
+            track.scheduledBufferCount = 0
+            track.player.stop()
+        }
         engine.stop()
-        engine.disconnectNodeOutput(player)
+        for track in tracks {
+            engine.disconnectNodeOutput(track.player)
+            track.activeFormat = nil
+        }
         engine.reset()
-        activeFormat = nil
         setBackgroundPlaybackActive(false)
 
         if deactivateSession {
@@ -182,7 +220,9 @@ final class AudioPlaybackEngine {
     }
 
     deinit {
-        player.stop()
+        for track in tracks {
+            track.player.stop()
+        }
         engine.stop()
     }
 }

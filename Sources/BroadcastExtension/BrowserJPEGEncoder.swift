@@ -8,7 +8,12 @@ final class BrowserJPEGEncoder {
     var onFrame: ((Data) -> Void)?
 
     private let quality: StreamQuality
-    private let context = CIContext(options: [
+    // Created on first use, not at broadcast start. A CIContext sets up a GPU
+    // backing store worth tens of megabytes against the broadcast extension's
+    // hard memory limit, and WebCodecs has carried the browser viewer since
+    // Safari 16.4 — so on any current iPhone this MJPEG path never runs. Only
+    // ever touched from `queue`, serialised by `isEncoding`.
+    private lazy var context = CIContext(options: [
         .cacheIntermediates: false
     ])
     private let colorSpace = CGColorSpaceCreateDeviceRGB()

@@ -19,6 +19,12 @@ struct AudioPCMFrame: Equatable {
     private static let version: UInt8 = 1
     private static let headerByteCount = 24
 
+    // Flag bits in header byte 2. Bit 0 has always carried interleaving; bit 1
+    // is new and marks a microphone frame. Older decoders mask only bit 0, so a
+    // mic frame still decodes as ordinary audio for them rather than failing.
+    private static let interleavedFlag: UInt8 = 1 << 0
+    private static let microphoneFlag: UInt8 = 1 << 1
+
     let format: AudioPCMSampleFormat
     let isInterleaved: Bool
     let channelCount: UInt8
@@ -26,12 +32,22 @@ struct AudioPCMFrame: Equatable {
     let frameCount: UInt32
     let timestampMicroseconds: UInt64
     let samples: Data
+    // Microphone and application audio arrive from ReplayKit as independent
+    // streams with their own rates and packet cadence. They are tagged and sent
+    // separately so the receiver can schedule each on its own clock and let its
+    // mixer combine them; resampling and mixing inside the broadcast extension
+    // would cost memory the extension does not have.
+    let isMicrophone: Bool
 
     var encoded: Data {
+        var flags: UInt8 = 0
+        if isInterleaved { flags |= Self.interleavedFlag }
+        if isMicrophone { flags |= Self.microphoneFlag }
+
         var data = Data()
         data.append(Self.version)
         data.append(format.rawValue)
-        data.append(isInterleaved ? 1 : 0)
+        data.append(flags)
         data.append(channelCount)
         data.appendAudioBigEndian(sampleRate)
         data.appendAudioBigEndian(frameCount)
@@ -48,7 +64,8 @@ struct AudioPCMFrame: Equatable {
         sampleRate: UInt32,
         frameCount: UInt32,
         timestampMicroseconds: UInt64,
-        samples: Data
+        samples: Data,
+        isMicrophone: Bool = false
     ) throws {
         guard (1...2).contains(channelCount),
               (8_000...192_000).contains(sampleRate),
@@ -69,6 +86,7 @@ struct AudioPCMFrame: Equatable {
         self.frameCount = frameCount
         self.timestampMicroseconds = timestampMicroseconds
         self.samples = samples
+        self.isMicrophone = isMicrophone
     }
 
     init(encoded data: Data) throws {
@@ -89,12 +107,13 @@ struct AudioPCMFrame: Equatable {
         }
         try self.init(
             format: format,
-            isInterleaved: flags & 1 == 1,
+            isInterleaved: flags & Self.interleavedFlag == Self.interleavedFlag,
             channelCount: channelCount,
             sampleRate: sampleRate,
             frameCount: frameCount,
             timestampMicroseconds: timestamp,
-            samples: Data(data.dropFirst(Self.headerByteCount))
+            samples: Data(data.dropFirst(Self.headerByteCount)),
+            isMicrophone: flags & Self.microphoneFlag == Self.microphoneFlag
         )
     }
 }

@@ -150,6 +150,63 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertThrowsError(try AudioPCMFrame(encoded: Data(frame.encoded.dropLast())))
     }
 
+    func testMicrophoneAudioSurvivesARoundTripAndIsTagged() throws {
+        let microphone = try AudioPCMFrame(
+            format: .int16,
+            isInterleaved: false,
+            channelCount: 1,
+            sampleRate: 44_100,
+            frameCount: 2,
+            timestampMicroseconds: 99,
+            samples: Data([0, 0, 1, 0]),
+            isMicrophone: true
+        )
+
+        XCTAssertTrue(microphone.isMicrophone)
+        let decoded = try AudioPCMFrame(encoded: microphone.encoded)
+        XCTAssertEqual(decoded, microphone)
+        XCTAssertTrue(decoded.isMicrophone)
+        // Flag bit 1 in header byte 2 carries the source; bit 0 stays interleaving.
+        XCTAssertEqual(microphone.encoded[2] & 0b10, 0b10)
+        XCTAssertEqual(microphone.encoded[2] & 0b01, 0)
+    }
+
+    func testApplicationAudioIsTheDefaultSourceAndSetsNoMicrophoneBit() throws {
+        let application = try AudioPCMFrame(
+            format: .int16,
+            isInterleaved: true,
+            channelCount: 1,
+            sampleRate: 44_100,
+            frameCount: 2,
+            timestampMicroseconds: 0,
+            samples: Data([0, 0, 1, 0])
+        )
+
+        XCTAssertFalse(application.isMicrophone)
+        XCTAssertEqual(application.encoded[2] & 0b10, 0)
+        XCTAssertFalse(try AudioPCMFrame(encoded: application.encoded).isMicrophone)
+    }
+
+    func testInterleavingAndMicrophoneFlagsAreIndependent() throws {
+        for interleaved in [true, false] {
+            for microphone in [true, false] {
+                let frame = try AudioPCMFrame(
+                    format: .float32,
+                    isInterleaved: interleaved,
+                    channelCount: 1,
+                    sampleRate: 48_000,
+                    frameCount: 1,
+                    timestampMicroseconds: 0,
+                    samples: Data(count: 4),
+                    isMicrophone: microphone
+                )
+                let decoded = try AudioPCMFrame(encoded: frame.encoded)
+                XCTAssertEqual(decoded.isInterleaved, interleaved)
+                XCTAssertEqual(decoded.isMicrophone, microphone)
+            }
+        }
+    }
+
     func testAudioQueueIsStrictlyBounded() {
         XCTAssertGreaterThan(AppConstants.maximumPendingAudioFrames, 0)
         XCTAssertLessThanOrEqual(AppConstants.maximumPendingAudioFrames, 10)
@@ -202,6 +259,67 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(floatSample(in: normalized, at: 1), -0.5, accuracy: 0.0001)
     }
 
+    func testPCMNormalizerAcceptsPaddedInterleavedFrames() throws {
+        // Two int16 stereo frames at an 8-byte stride: four bytes of payload and
+        // four of padding. An exact-size requirement rejected this outright, which
+        // silenced application audio for the rest of the broadcast.
+        let padded = Data([
+            0x00, 0x00, 0xFF, 0x7F, 0xAA, 0xAA, 0xAA, 0xAA,
+            0x00, 0x80, 0x00, 0x40, 0xBB, 0xBB, 0xBB, 0xBB
+        ])
+        let normalized = try XCTUnwrap(LinearPCMNormalizer.planarFloat32(
+            buffers: [padded],
+            sourceFormat: .int16,
+            isInterleaved: true,
+            isBigEndian: false,
+            channelCount: 2,
+            frameCount: 2,
+            bytesPerFrame: 8
+        ))
+
+        XCTAssertEqual(floatSample(in: normalized, at: 0), 0, accuracy: 0.0001)
+        XCTAssertEqual(floatSample(in: normalized, at: 1), -1, accuracy: 0.0001)
+        XCTAssertEqual(
+            floatSample(in: normalized, at: 2),
+            Float(32_767) / 32_768,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(floatSample(in: normalized, at: 3), 0.5, accuracy: 0.0001)
+    }
+
+    func testPCMNormalizerDerivesPlanarStrideRatherThanTrustingIt() throws {
+        // A planar buffer whose reported stride covers every channel rather than
+        // one sample. Trusting it demanded four times the bytes present and made
+        // every frame fail; deriving it from the sample size decodes correctly.
+        let planarMono = Data([0x00, 0x40, 0x00, 0xC0])
+        let normalized = try XCTUnwrap(LinearPCMNormalizer.planarFloat32(
+            buffers: [planarMono],
+            sourceFormat: .int16,
+            isInterleaved: false,
+            isBigEndian: false,
+            channelCount: 1,
+            frameCount: 2,
+            bytesPerFrame: 8
+        ))
+
+        XCTAssertEqual(floatSample(in: normalized, at: 0), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(floatSample(in: normalized, at: 1), -0.5, accuracy: 0.0001)
+    }
+
+    func testPCMNormalizerStillRejectsAnImpossiblySmallInterleavedStride() {
+        // Smaller than one packed frame means the layout was misreported; reading
+        // it would interleave the channels wrongly, so refuse rather than guess.
+        XCTAssertNil(LinearPCMNormalizer.planarFloat32(
+            buffers: [Data([0x00, 0x00, 0xFF, 0x7F])],
+            sourceFormat: .int16,
+            isInterleaved: true,
+            isBigEndian: false,
+            channelCount: 2,
+            frameCount: 2,
+            bytesPerFrame: 2
+        ))
+    }
+
     func testVideoConfigurationDecodesLegacyPayload() throws {
         let legacyJSON = """
         {
@@ -238,28 +356,133 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(configuration.effectiveFrameRate, 30)
     }
 
+    func testRotationDoesNotInvalidateTheDecoderState() {
+        let portrait = VideoConfiguration(
+            width: 1080,
+            height: 2336,
+            orientation: 1,
+            sps: Data([1, 2, 3]),
+            pps: Data([4, 5]),
+            nalUnitHeaderLength: 4,
+            nominalFrameRate: 60
+        )
+        let rotated = VideoConfiguration(
+            width: 1080,
+            height: 2336,
+            orientation: 6,
+            sps: Data([1, 2, 3]),
+            pps: Data([4, 5]),
+            nalUnitHeaderLength: 4,
+            nominalFrameRate: 60
+        )
+
+        // Equality still differs, which is why comparing whole configurations
+        // rebuilt the decoder and blanked the picture on every rotation.
+        XCTAssertNotEqual(portrait, rotated)
+        XCTAssertTrue(portrait.describesSameDecoderState(as: rotated))
+        XCTAssertTrue(rotated.describesSameDecoderState(as: portrait))
+    }
+
+    func testDecoderStateChangesInvalidateTheFormatDescription() {
+        let base = VideoConfiguration(
+            width: 1080,
+            height: 2336,
+            orientation: 1,
+            sps: Data([1, 2, 3]),
+            pps: Data([4, 5]),
+            nalUnitHeaderLength: 4,
+            nominalFrameRate: 60
+        )
+
+        func variant(
+            width: Int32 = 1080,
+            height: Int32 = 2336,
+            sps: Data = Data([1, 2, 3]),
+            pps: Data = Data([4, 5]),
+            nal: Int32? = 4,
+            rate: Int32? = 60
+        ) -> VideoConfiguration {
+            VideoConfiguration(
+                width: width,
+                height: height,
+                orientation: 1,
+                sps: sps,
+                pps: pps,
+                nalUnitHeaderLength: nal,
+                nominalFrameRate: rate
+            )
+        }
+
+        XCTAssertFalse(base.describesSameDecoderState(as: variant(width: 720)))
+        XCTAssertFalse(base.describesSameDecoderState(as: variant(height: 1280)))
+        XCTAssertFalse(base.describesSameDecoderState(as: variant(sps: Data([9]))))
+        XCTAssertFalse(base.describesSameDecoderState(as: variant(pps: Data([9]))))
+        XCTAssertFalse(base.describesSameDecoderState(as: variant(nal: 2)))
+        XCTAssertFalse(base.describesSameDecoderState(as: variant(rate: 30)))
+
+        // Values that normalise to the same effective metadata must still match,
+        // so a legacy payload does not force a needless decoder rebuild.
+        XCTAssertTrue(base.describesSameDecoderState(as: variant(nal: nil)))
+    }
+
     func testStreamQualityBoundsNativePhoneResolution() {
         let balanced = StreamQuality.balanced.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(balanced.width, 442)
-        XCTAssertEqual(balanced.height, 960)
+        XCTAssertEqual(balanced.width, 720)
+        XCTAssertEqual(balanced.height, 1558)
 
+        // 1080 now means 1080 lines across the short edge. The long-edge cap it
+        // replaced turned this same source into 498x1080 — a 498-line stream
+        // stretched over a landscape viewer, which is what "blurry" looked like.
         let sharp = StreamQuality.sharp.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(sharp.width, 498)
-        XCTAssertEqual(sharp.height, 1080)
+        XCTAssertEqual(sharp.width, 1080)
+        XCTAssertEqual(sharp.height, 2336)
 
+        // The source's short edge is already under Ultra's 1440 bound, so it is
+        // passed through natively rather than upscaled.
         let ultra = StreamQuality.ultra.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(ultra.width, 664)
-        XCTAssertEqual(ultra.height, 1440)
+        XCTAssertEqual(ultra.width, 1170)
+        XCTAssertEqual(ultra.height, 2532)
 
         let saver = StreamQuality.dataSaver.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
-        XCTAssertEqual(saver.width, 248)
-        XCTAssertEqual(saver.height, 540)
+        XCTAssertEqual(saver.width, 480)
+        XCTAssertEqual(saver.height, 1038)
+    }
+
+    func testEncodedDimensionsNeverUpscaleBelowTheShortEdgeBound() {
+        // Ultra bounds the short edge at 1440; a 1170-wide source must not be
+        // stretched up to meet it.
+        let ultra = StreamQuality.ultra.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
+        XCTAssertLessThanOrEqual(ultra.width, 1170)
+        XCTAssertLessThanOrEqual(ultra.height, 2532)
+    }
+
+    func testRaisedBitRateCeilingsDoNotStarveTheNewResolutions() {
+        // A resolution increase is worthless if the ceiling clamps it: the old
+        // 8 Mbps cap over 1080x2336 at 60 Hz is 0.05 bits per pixel, which looks
+        // worse than the lower resolution it replaced. Assert each quality's
+        // pixel-derived request survives its own ceiling unclamped.
+        for quality in [StreamQuality.dataSaver, .balanced, .sharp, .ultra] {
+            let dimensions = quality.encodedDimensions(sourceWidth: 1170, sourceHeight: 2532)
+            let rate = quality.bitRate(width: dimensions.width, height: dimensions.height)
+            XCTAssertLessThan(
+                rate,
+                quality.maximumBitRate,
+                "\(quality.rawValue) is clamped by its ceiling and will look blocky"
+            )
+            let bitsPerPixel = Double(rate)
+                / (Double(dimensions.width) * Double(dimensions.height) * Double(quality.framesPerSecond))
+            XCTAssertGreaterThan(
+                bitsPerPixel,
+                0.08,
+                "\(quality.rawValue) falls below a usable bits-per-pixel budget"
+            )
+        }
     }
 
     func testStreamQualityScalesOlderPhoneResolutionToLowLatencyBound() {
         let dimensions = StreamQuality.balanced.encodedDimensions(sourceWidth: 750, sourceHeight: 1334)
-        XCTAssertEqual(dimensions.width, 538)
-        XCTAssertEqual(dimensions.height, 960)
+        XCTAssertEqual(dimensions.width, 720)
+        XCTAssertEqual(dimensions.height, 1280)
     }
 
     func testStreamQualityFrameRateTargets() {
@@ -275,7 +498,10 @@ final class WireProtocolTests: XCTestCase {
             StreamQuality.ultra.bitRate(width: 1_440, height: 1_080),
             StreamQuality.sharp.bitRate(width: 1_080, height: 810)
         )
-        XCTAssertEqual(StreamQuality.ultra.bitRate(width: 1_440, height: 1_080), 12_000_000)
+        // 1440x1080 at 60 Hz and 0.16 bits per pixel is ~14.9 Mbps, which now
+        // sits under Ultra's ceiling instead of being clamped to it.
+        XCTAssertEqual(StreamQuality.ultra.bitRate(width: 1_440, height: 1_080), 14_929_920)
+        XCTAssertEqual(StreamQuality.ultra.maximumBitRate, 32_000_000)
     }
 
     func testTransportWindowCoversQuarterSecondAtTargetFrameRate() {

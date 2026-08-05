@@ -17,15 +17,27 @@ enum LinearPCMNormalizer {
         }
 
         let bytesPerSample = sourceFormat.bytesPerSample
-        let minimumBytesPerFrame = isInterleaved
-            ? bytesPerSample * channelCount
-            : bytesPerSample
-        guard bytesPerFrame == minimumBytesPerFrame,
-              buffers.count == (isInterleaved ? 1 : channelCount) else {
+        guard buffers.count == (isInterleaved ? 1 : channelCount) else {
             return nil
         }
 
-        let requiredBufferBytes = frameCount * bytesPerFrame
+        // Stride between consecutive frames within one source buffer.
+        //
+        // This used to require bytesPerFrame equal the tightly packed size and
+        // returned nil otherwise, so any padded or differently reported format
+        // silently dropped every frame — permanently, since nothing retries. Now
+        // a padded interleaved stride is accepted, while a non-interleaved stride
+        // is derived from the sample size so a wrong value cannot make the reader
+        // skip samples and garble the audio.
+        let frameStride: Int
+        if isInterleaved {
+            guard bytesPerFrame >= bytesPerSample * channelCount else { return nil }
+            frameStride = bytesPerFrame
+        } else {
+            frameStride = bytesPerSample
+        }
+
+        let requiredBufferBytes = frameCount * frameStride
         guard buffers.allSatisfy({ $0.count >= requiredBufferBytes }) else {
             return nil
         }
@@ -35,7 +47,7 @@ enum LinearPCMNormalizer {
         for channel in 0..<channelCount {
             let source = buffers[isInterleaved ? 0 : channel]
             for frame in 0..<frameCount {
-                let sampleOffset = frame * bytesPerFrame
+                let sampleOffset = frame * frameStride
                     + (isInterleaved ? channel * bytesPerSample : 0)
                 let sample = readSample(
                     source,

@@ -12,6 +12,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var isPaused = false
     private var lastOrientation: UInt32 = 1
     private var lastOrientationDiagnostic = ""
+    private var lastAudioDiagnostic = ""
     private var orientationMode: StreamOrientationMode = .landscape
     private var rotationDirection: StreamRotationDirection = .left
     private var isFinishing = false
@@ -112,8 +113,22 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
 
         autoreleasepool {
-            if sampleBufferType == .audioApp {
-                guard let frame = CapturedAudioPCMFrame.make(from: sampleBuffer) else { return }
+            if sampleBufferType == .audioApp || sampleBufferType == .audioMic {
+                // Microphone frames were previously discarded, so the streamer
+                // could never be heard. Tag the source and forward both: the
+                // receiver mixes them, which avoids resampling two independent
+                // ReplayKit clocks inside the extension's memory budget.
+                let isMicrophone = sampleBufferType == .audioMic
+                let frame = CapturedAudioPCMFrame.make(
+                    from: sampleBuffer,
+                    isMicrophone: isMicrophone
+                )
+                recordAudioDiagnostic(
+                    for: sampleBuffer,
+                    source: isMicrophone ? "mic" : "app",
+                    accepted: frame != nil
+                )
+                guard let frame else { return }
                 browserServer?.publish(audio: frame)
                 if transport?.isReady == true {
                     transport?.sendAudio(frame)
@@ -147,6 +162,25 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 encoder?.encode(sampleBuffer, orientation: orientation)
             }
         }
+    }
+
+    private func recordAudioDiagnostic(
+        for sampleBuffer: CMSampleBuffer,
+        source: String,
+        accepted: Bool
+    ) {
+        let diagnostic = "\(source) audio "
+            + CapturedAudioPCMFrame.formatSummary(of: sampleBuffer)
+            + " -> \(accepted ? "ok" : "REJECTED")"
+        // Audio arrives around a hundred times a second, so only persist when the
+        // description actually changes. That still captures the moment another
+        // app reshapes the session and the format starts being rejected.
+        guard diagnostic != lastAudioDiagnostic else { return }
+        lastAudioDiagnostic = diagnostic
+        UserDefaults(suiteName: AppConstants.appGroup)?.set(
+            diagnostic,
+            forKey: AppConstants.audioDiagnosticKey
+        )
     }
 
     private func stopWithError(_ message: String) {

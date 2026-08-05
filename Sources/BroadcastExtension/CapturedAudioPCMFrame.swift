@@ -3,7 +3,34 @@ import CoreMedia
 import Foundation
 
 enum CapturedAudioPCMFrame {
-    static func make(from sampleBuffer: CMSampleBuffer) -> AudioPCMFrame? {
+    // Compact description of what ReplayKit actually handed over, for the sender
+    // UI's diagnostic line. Only used when the summary changes, so it never runs
+    // per frame at audio rate.
+    static func formatSummary(of sampleBuffer: CMSampleBuffer) -> String {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let description = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?
+                .pointee else {
+            return "no format description"
+        }
+        let layout = description.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
+            ? "interleaved"
+            : "planar"
+        let kind: String
+        if description.mFormatFlags & kAudioFormatFlagIsFloat != 0 {
+            kind = "float"
+        } else if description.mFormatFlags & kAudioFormatFlagIsSignedInteger != 0 {
+            kind = "int"
+        } else {
+            kind = "other"
+        }
+        return "\(Int(description.mSampleRate))Hz"
+            + " \(description.mChannelsPerFrame)ch"
+            + " \(kind)\(description.mBitsPerChannel)"
+            + " \(layout)"
+            + " stride \(description.mBytesPerFrame)"
+    }
+
+    static func make(from sampleBuffer: CMSampleBuffer, isMicrophone: Bool = false) -> AudioPCMFrame? {
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
               let description = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?
                 .pointee,
@@ -38,8 +65,22 @@ enum CapturedAudioPCMFrame {
 
         let isInterleaved = flags & kAudioFormatFlagIsNonInterleaved == 0
         let expectedBufferCount = isInterleaved ? 1 : channels
-        let bytesPerFrame = Int(description.mBytesPerFrame)
-        guard bytesPerFrame > 0 else { return nil }
+        let reportedBytesPerFrame = Int(description.mBytesPerFrame)
+        guard reportedBytesPerFrame > 0 else { return nil }
+
+        // Stride between consecutive frames inside one source buffer.
+        //
+        // Core Audio reports mBytesPerFrame per buffer, so for non-interleaved
+        // audio it should already equal a single sample. Deriving it rather than
+        // trusting it matters: a larger reported value made the bounds check below
+        // demand more bytes than the buffer actually holds, so every frame was
+        // rejected and application audio went silent for the remainder of the
+        // broadcast — with no diagnostic and no recovery, which is why restarting
+        // the broadcast was the only cure. Interleaved frames may legitimately
+        // carry padding, so there the reported stride wins when it is big enough.
+        let frameStride = isInterleaved
+            ? max(reportedBytesPerFrame, sampleFormat.bytesPerSample * channels)
+            : sampleFormat.bytesPerSample
         let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let timestampMicroseconds: UInt64
         if timestamp.isValid, timestamp.seconds.isFinite, timestamp.seconds > 0 {
@@ -56,7 +97,7 @@ enum CapturedAudioPCMFrame {
                 var sourceBuffers: [Data] = []
                 sourceBuffers.reserveCapacity(buffers.count)
                 for buffer in buffers {
-                    let requiredBytes = frameCount * bytesPerFrame
+                    let requiredBytes = frameCount * frameStride
                     guard let source = buffer.mData,
                           Int(buffer.mDataByteSize) >= requiredBytes else {
                         return nil
@@ -70,7 +111,7 @@ enum CapturedAudioPCMFrame {
                     isBigEndian: flags & kAudioFormatFlagIsBigEndian != 0,
                     channelCount: channels,
                     frameCount: frameCount,
-                    bytesPerFrame: bytesPerFrame
+                    bytesPerFrame: frameStride
                 ) else { return nil }
 
                 return try AudioPCMFrame(
@@ -80,7 +121,8 @@ enum CapturedAudioPCMFrame {
                     sampleRate: UInt32(description.mSampleRate.rounded()),
                     frameCount: UInt32(frameCount),
                     timestampMicroseconds: timestampMicroseconds,
-                    samples: samples
+                    samples: samples,
+                    isMicrophone: isMicrophone
                 )
             }
         } catch {

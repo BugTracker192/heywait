@@ -339,13 +339,13 @@ struct SenderRootView: View {
     private var qualityDescription: String {
         switch model.quality {
         case .ultra:
-            return "1440p, 60 FPS hardware H.264 target. Requires strong Wi-Fi and uses more heat and battery."
+            return "Native resolution, 60 FPS hardware H.264 up to 32 Mbps. Sharpest picture; needs strong 5 GHz Wi-Fi and runs hotter."
         case .sharp:
-            return "1080p, 60 FPS hardware H.264 target with automatic compatibility fallback."
+            return "1080 lines, 60 FPS hardware H.264 up to 24 Mbps. Recommended balance of sharpness and stability."
         case .balanced:
-            return "960p, 60 FPS hardware H.264 target balanced for quality and stability."
+            return "720 lines, 60 FPS hardware H.264 up to 12 Mbps. Lower heat and more tolerant of weaker Wi-Fi."
         case .dataSaver:
-            return "540p, 60 FPS target for the smoothest delivery on weaker networks."
+            return "480 lines, 60 FPS up to 6 Mbps for the smoothest delivery on poor networks."
         }
     }
 
@@ -423,6 +423,12 @@ struct SenderRootView: View {
                 .foregroundStyle(.tertiary)
             if let orientationDiagnostic {
                 Text(orientationDiagnostic)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+            }
+            if let audioDiagnostic {
+                Text(audioDiagnostic)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
@@ -518,6 +524,11 @@ struct SenderRootView: View {
             .string(forKey: AppConstants.orientationDiagnosticKey)
     }
 
+    private var audioDiagnostic: String? {
+        UserDefaults(suiteName: AppConstants.appGroup)?
+            .string(forKey: AppConstants.audioDiagnosticKey)
+    }
+
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(17)
@@ -558,6 +569,12 @@ private final class BroadcastPickerContainer: UIView {
         super.init(frame: frame)
 
         picker.preferredExtension = AppConstants.broadcastBundleIdentifier
+        // Left off deliberately. The complaint that looked like "I want to be
+        // heard" is actually "I stop hearing the stream once a call starts", so
+        // capture is not wanted here — and enabling it would make the broadcast's
+        // audio session record-capable, which is exactly the condition implicated
+        // in that bug. SampleHandler still handles .audioMic correctly if iOS's
+        // own broadcast sheet offers the toggle, so nothing breaks either way.
         picker.showsMicrophoneButton = false
         picker.tintColor = .clear
         addSubview(picker)
