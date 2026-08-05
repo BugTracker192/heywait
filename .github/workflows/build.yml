@@ -97,10 +97,10 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "${receiver_info}")" = 'false'
           test -x "${broadcast_app}/ScreenShareBroadcast"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${broadcast_info}")" = 'com.apple.broadcast-services-upload'
-          # Derive the expected identity from AppConstants instead of repeating it
-          # here. The sender looks the extension up by that constant, so the two
-          # disagreeing means the broadcast picker cannot find the extension at
-          # all. Hardcoding it in this file let the two drift silently.
+          # Derive the expected identity from AppConstants rather than repeating
+          # it here. The sender looks the extension up by that constant, so a
+          # mismatch means the broadcast picker cannot find the extension at all.
+          # Hardcoding the literal in this file let the two drift silently.
           expected_broadcast_id="$(sed -n 's/.*broadcastBundleIdentifier = "\(.*\)".*/\1/p' Sources/Shared/AppConstants.swift)"
           echo "AppConstants declares broadcast identity: ${expected_broadcast_id}"
           test -n "${expected_broadcast_id}"
