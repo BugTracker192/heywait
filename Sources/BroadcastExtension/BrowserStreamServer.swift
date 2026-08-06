@@ -628,10 +628,29 @@ private final class BrowserHTTPClient {
               const viewport=window.visualViewport;
               const cssWidth=Math.max(1,Math.round(viewport?viewport.width:innerWidth));
               const cssHeight=Math.max(1,Math.round(viewport?viewport.height:innerHeight));
-              // The encoded Balanced stream tops out at 960 px. Rendering it
-              // into a 2x Retina canvas only creates extra scaling/copy work
-              // before canvas.captureStream hands it to the native player.
-              const d=Math.min(devicePixelRatio||1,1.25),w=Math.max(1,Math.round(cssWidth*d)),h=Math.max(1,Math.round(cssHeight*d));
+              // Backing-store scale for the canvas.
+              //
+              // This used to be capped at 1.25x CSS pixels, which was correct when
+              // the encoder still downscaled hard — the old Balanced stream topped
+              // out at 960 px, so a Retina-sized canvas was pure copy cost. The
+              // short-edge bound now passes ReplayKit's frame through untouched at
+              // 888x1920, and against a 3x screen that cap squeezed a 1920x888
+              // frame into roughly 1065x491 before the display upscaled it back
+              // again — discarding nearly half the detail being transmitted, no
+              // matter how high the bit rate went.
+              //
+              // Size the store to hold the source at 1:1 where the screen allows,
+              // and never larger than the screen's own pixels: the encoded frame is
+              // the hard limit on detail, so anything beyond it is GPU cost for no
+              // visible gain. A smaller source therefore still gets a small canvas,
+              // which preserves the original performance intent.
+              let d = Math.min(devicePixelRatio || 1, 3);
+              if (cachedWidth && cachedHeight) {
+                const longestSource = Math.max(cachedWidth, cachedHeight);
+                const longestCSS = Math.max(cssWidth, cssHeight);
+                if (longestCSS > 0) d = Math.min(d, Math.max(1, longestSource / longestCSS));
+              }
+              const w=Math.max(1,Math.round(cssWidth*d)),h=Math.max(1,Math.round(cssHeight*d));
               if(canvas.width!==w||canvas.height!==h){
                 canvas.width=w;canvas.height=h;needsRedraw=true;
               }

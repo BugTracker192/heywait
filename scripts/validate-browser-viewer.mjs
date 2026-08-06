@@ -190,8 +190,15 @@ if (!script.includes("function silenceBackgroundAudio()") ||
     !script.includes("restoreForegroundAudio();")) {
   throw new Error("Receiver audio is not muted in the background and restored on foreground return.");
 }
-if (!script.includes("Math.min(devicePixelRatio||1,1.25)")) {
-  throw new Error("The browser viewer is rendering into an oversized Retina canvas.");
+// The canvas backing store must stay bounded, but bounded by the source frame
+// rather than an arbitrary 1.25x cap. That cap predated the encoder passing
+// ReplayKit's frame through unscaled, and against a 3x screen it squeezed a
+// 1920x888 frame into roughly 1065x491 — discarding about half the detail being
+// transmitted regardless of bit rate. Sizing to the source keeps the original
+// intent (a small source still gets a small canvas) without losing detail.
+if (!script.includes("Math.min(devicePixelRatio || 1, 3)") ||
+    !script.includes("longestSource / longestCSS")) {
+  throw new Error("The browser viewer canvas is not bounded by the source frame size.");
 }
 if (script.includes("waitingForRecoveryKeyframe") ||
     script.includes("resetDecoderAtKeyframe()") ||
